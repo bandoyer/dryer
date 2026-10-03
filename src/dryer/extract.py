@@ -104,22 +104,29 @@ def _python_nodes(data: bytes, root) -> list:
     return found
 
 
+def _keep_typescript_function(node) -> bool:
+    return _has(node, "statement_block") and not _inside(node, _TS_FUNCTION)
+
+
+def _typescript_parent(node):
+    parent = node.parent
+    if parent is None or parent.type not in _DEFINITION_PARENTS:
+        return None
+    if _inside(parent, _TS_FUNCTION):
+        return None
+    return parent
+
+
 def _typescript_nodes(data: bytes, root) -> list:
     found = []
     for node in descendants(root):
-        if node.type == "function_declaration":
-            if _has(node, "statement_block") and not _inside(node, _TS_FUNCTION):
-                found.append(node)
-        elif node.type == "method_definition":
-            if _has(node, "statement_block") and not _inside(node, _TS_FUNCTION):
+        if node.type in {"function_declaration", "method_definition"}:
+            if _keep_typescript_function(node):
                 found.append(node)
         elif node.type in {"arrow_function", "function_expression"}:
-            parent = node.parent
-            if parent is None or parent.type not in _DEFINITION_PARENTS:
-                continue
-            if _inside(parent, _TS_FUNCTION):
-                continue
-            found.append(parent)
+            parent = _typescript_parent(node)
+            if parent is not None:
+                found.append(parent)
     return found
 
 

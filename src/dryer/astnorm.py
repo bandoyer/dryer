@@ -178,11 +178,25 @@ def _without_type_args(nodes):
     return rest, type_args
 
 
+def _callee_leaf(node):
+    if node.type in _IDENTIFIERS:
+        return [K("symbol"), _text(node)]
+    return _PENDING
+
+
+def _named_leaf(node, head: bool):
+    if node.type in _IDENTIFIERS:
+        if head:
+            return [K("symbol"), _text(node)]
+        return K("symbol")
+    if _is_literal(node):
+        return K("literal")
+    return _PENDING
+
+
 def _try_leaf(node, mode: str, head: bool):
     if mode == "callee":
-        if node.type in _IDENTIFIERS:
-            return [K("symbol"), _text(node)]
-        return _PENDING
+        return _callee_leaf(node)
     if mode == "path":
         return _PENDING
     if node.type in _SKIP:
@@ -191,13 +205,7 @@ def _try_leaf(node, mode: str, head: bool):
         return [K("symbol"), node.type]
     if not node.is_named:
         return None
-    if node.type in _IDENTIFIERS:
-        if head:
-            return [K("symbol"), _text(node)]
-        return K("symbol")
-    if _is_literal(node):
-        return K("literal")
-    return _PENDING
+    return _named_leaf(node, head)
 
 
 def _call_jobs(node):
@@ -241,13 +249,17 @@ def _path_jobs(node):
     return jobs
 
 
+def _callee_jobs(node):
+    if node.type in _ATTRIBUTES:
+        return _attr_jobs(node, True)
+    if node.type in _SCOPED or node.type == "generic_type":
+        return _path_jobs(node)
+    return [(node, "norm", True)]
+
+
 def _jobs(node, mode: str, head: bool):
     if mode == "callee":
-        if node.type in _ATTRIBUTES:
-            return _attr_jobs(node, True)
-        if node.type in _SCOPED or node.type == "generic_type":
-            return _path_jobs(node)
-        return [(node, "norm", True)]
+        return _callee_jobs(node)
     if mode == "path":
         return _path_jobs(node)
     if node.type == "parenthesized_expression" and len(node.named_children) == 1:
@@ -325,13 +337,26 @@ def _assemble_path(node, cache):
     return parts
 
 
+def _callee_value(node, cache):
+    if node.type in _ATTRIBUTES:
+        return _assemble_attr(node, True, cache)
+    if node.type in _SCOPED or node.type == "generic_type":
+        return _assemble_path(node, cache)
+    return cache[(id(node), "norm", True)]
+
+
+def _assemble_children(node, cache):
+    children = []
+    for child in node.children:
+        norm = cache[(id(child), "norm", False)]
+        if norm is not None:
+            children.append(norm)
+    return [K(node.type), *children]
+
+
 def _assemble(node, mode: str, head: bool, cache):
     if mode == "callee":
-        if node.type in _ATTRIBUTES:
-            return _assemble_attr(node, True, cache)
-        if node.type in _SCOPED or node.type == "generic_type":
-            return _assemble_path(node, cache)
-        return cache[(id(node), "norm", True)]
+        return _callee_value(node, cache)
     if mode == "path":
         return _assemble_path(node, cache)
     if node.type == "parenthesized_expression" and len(node.named_children) == 1:
@@ -341,12 +366,7 @@ def _assemble(node, mode: str, head: bool, cache):
         return _assemble_call(node, cache)
     if node.type in _ATTRIBUTES:
         return _assemble_attr(node, head, cache)
-    children = []
-    for child in node.children:
-        norm = cache[(id(child), "norm", False)]
-        if norm is not None:
-            children.append(norm)
-    return [K(node.type), *children]
+    return _assemble_children(node, cache)
 
 
 def _normalize(node, head: bool = False):

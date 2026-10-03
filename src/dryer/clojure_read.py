@@ -17,6 +17,9 @@ from dryer.shape import K
 
 _WHITESPACE = set(" \t\n\r,")
 _TERMINATORS = set("()[]{}\";'@^`~\\,#:")
+_COLLECTIONS = {"(": (")", "list"), "[": ("]", "vector"), "{": ("}", "map")}
+_WRAPPERS = {"'": "quote", "@": "deref", "`": "syntax-quote"}
+_ATOMS = set("\"\\:")
 _NUMBER = re.compile(
     r"^[+-]?(?:"
     r"\d+/\d+"
@@ -190,25 +193,31 @@ class Reader:
             raise ReadError(self.line, "unexpected end of file")
         return self._open(stack)
 
+    def _deliver_coll(self, frame, produced):
+        items = frame[4]
+        if produced is None:
+            return _NEED
+        if isinstance(produced, Splice):
+            items.extend(produced.items)
+        else:
+            items.append(produced)
+        return _NEED
+
+    def _deliver_wrap(self, frame, produced):
+        _tag, name, line = frame
+        items = [Sym(name, line)]
+        if produced is not None and not isinstance(produced, Splice):
+            items.append(produced)
+        return Coll("list", line, items=items)
+
     def _deliver(self, stack: list[tuple], produced):
         frame = stack[-1]
         tag = frame[0]
         if tag == "coll":
-            items = frame[4]
-            if produced is None:
-                return _NEED
-            if isinstance(produced, Splice):
-                items.extend(produced.items)
-            else:
-                items.append(produced)
-            return _NEED
+            return self._deliver_coll(frame, produced)
         stack.pop()
         if tag == "wrap":
-            _tag, name, line = frame
-            items = [Sym(name, line)]
-            if produced is not None and not isinstance(produced, Splice):
-                items.append(produced)
-            return Coll("list", line, items=items)
+            return self._deliver_wrap(frame, produced)
         if tag == "discard":
             return None
         if tag == "meta":
@@ -232,97 +241,122 @@ class Reader:
             raise ReadError(self.line, "splicing reader conditional needs a collection")
         return spliced
 
-    def _open(self, stack: list[tuple]):
-        ch = self.peek()
-        line = self.line
-        if ch == "(":
-            self.get()
-            stack.append(("coll", ")", "list", line, [], False))
-            return _NEED
-        if ch == "[":
-            self.get()
-            stack.append(("coll", "]", "vector", line, [], False))
-            return _NEED
-        if ch == "{":
-            self.get()
-            stack.append(("coll", "}", "map", line, [], False))
-            return _NEED
+    def _open_collection(self, stack: list[tuple], ch: str, line: int):
+        self.get()
+        end, kind = _COLLECTIONS[ch]
+        stack.append(("coll", end, kind, line, [], False))
+        return _NEED
+
+    def _open_atom(self, ch: str):
         if ch == '"':
             return self.read_string()
         if ch == "\\":
             return self.read_char()
-        if ch == ":":
-            return self.read_keyword()
-        if ch == "'":
+        return self.read_keyword()
+
+    def _open_unquote(self, stack: list[tuple], line: int):
+        name = "unquote"
+        if self.peek() == "@":
             self.get()
-            stack.append(("wrap", "quote", line))
-            return _NEED
-        if ch == "@":
-            self.get()
-            stack.append(("wrap", "deref", line))
-            return _NEED
-        if ch == "`":
-            self.get()
-            stack.append(("wrap", "syntax-quote", line))
+            name = "unquote-splicing"
+        stack.append(("wrap", name, line))
+        return _NEED
+
+    def _open_wrapper(self, stack: list[tuple], ch: str, line: int):
+        self.get()
+        if ch in _WRAPPERS:
+            stack.append(("wrap", _WRAPPERS[ch], line))
             return _NEED
         if ch == "~":
-            self.get()
-            name = "unquote"
-            if self.peek() == "@":
-                self.get()
-                name = "unquote-splicing"
-            stack.append(("wrap", name, line))
-            return _NEED
-        if ch == "^":
-            self.get()
-            stack.append(("meta",))
-            return _NEED
-        if ch == "#":
-            return self._dispatch(stack, line)
+            return self._open_unquote(stack, line)
+        stack.append(("meta",))
+        return _NEED
+
+    def _open_token(self, line: int):
         token = self.read_token()
         if _NUMBER.match(token):
             return Lit(line)
         return Sym(token, line)
+
+    def _open(self, stack: list[tuple]):
+        ch = self.peek()
+        line = self.line
+        if ch in _COLLECTIONS:
+            return self._open_collection(stack, ch, line)
+        if ch in _ATOMS:
+            return self._open_atom(ch)
+        if ch in _WRAPPERS or ch in "~^":
+            return self._open_wrapper(stack, ch, line)
+        if ch == "#":
+            return self._dispatch(stack, line)
+        return self._open_token(line)
+
+    def _dispatch_discard(self, stack: list[tuple], _line: int):
+        self.get()
+        stack.append(("discard",))
+        return _NEED
+
+    def _dispatch_set(self, stack: list[tuple], _line: int):
+        brace = self.line
+        self.get()
+        stack.append(("coll", "}", "set", brace, [], False))
+        return _NEED
+
+    def _dispatch_fn(self, stack: list[tuple], line: int):
+        self.get()
+        stack.append(("coll", ")", "list", line, [], True))
+        return _NEED
+
+    def _dispatch_string(self, _stack: list[tuple], line: int):
+        self.read_string()
+        return Lit(line)
+
+    def _dispatch_cond(self, stack: list[tuple], _line: int):
+        self.get()
+        splicing = self.peek() == "@"
+        if splicing:
+            self.get()
+        stack.append(("cond", splicing))
+        return _NEED
+
+    def _read_map_qualifier(self) -> None:
+        peeked = self.peek()
+        if peeked == ":":
+            self.get()
+            return
+        if peeked is None or peeked == "{" or peeked in _WHITESPACE:
+            return
+        self.read_token()
+
+    def _dispatch_map(self, _stack: list[tuple], _line: int):
+        self.get()
+        self._read_map_qualifier()
+        return _NEED
+
+    def _dispatch_extension(self, stack: list[tuple], line: int):
+        self.read_token()
+        stack.append(("lit", line))
+        return _NEED
 
     def _dispatch(self, stack: list[tuple], line: int):
         self.get()
         ch = self.peek()
         if ch is None:
             raise ReadError(line, "incomplete dispatch")
-        if ch == "_":
-            self.get()
-            stack.append(("discard",))
-            return _NEED
-        if ch == "{":
-            brace = self.line
-            self.get()
-            stack.append(("coll", "}", "set", brace, [], False))
-            return _NEED
-        if ch == "(":
-            self.get()
-            stack.append(("coll", ")", "list", line, [], True))
-            return _NEED
-        if ch == '"':
-            self.read_string()
-            return Lit(line)
-        if ch == "?":
-            self.get()
-            splicing = False
-            if self.peek() == "@":
-                self.get()
-                splicing = True
-            stack.append(("cond", splicing))
-            return _NEED
-        if ch == ":":
-            self.get()
-            if self.peek() == ":":
-                self.get()
-            elif self.peek() not in (None, "{") and self.peek() not in _WHITESPACE:
-                self.read_token()
-            return _NEED
-        self.read_token()
-        stack.append(("lit", line))
-        return _NEED
+        handler = _DISPATCH.get(ch)
+        if handler is None:
+            return self._dispatch_extension(stack, line)
+        return handler(self, stack, line)
+
+
+_DISPATCH = {
+    "_": Reader._dispatch_discard,
+    "{": Reader._dispatch_set,
+    "(": Reader._dispatch_fn,
+    '"': Reader._dispatch_string,
+    "?": Reader._dispatch_cond,
+    ":": Reader._dispatch_map,
+}
 
 
 def _branch_name(feature):
