@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dryer.discover import is_test_file, iter_source_files, language_of
+from dryer.discover import SKIP_DIRS, TEST_DIRS, is_test_file, iter_source_files, language_of
 from dryer.report import format_text, render_edn, write_metrics
 from dryer.scan import find_duplicates, scan_files
 
-HELP = """\
+
+def _skipped_directory_text() -> str:
+    ordered = sorted(set(SKIP_DIRS) | set(TEST_DIRS))
+    return ", ".join(ordered[:-1]) + ", and " + ordered[-1]
+
+
+HELP = f"""\
 Usage: dryer [options] [path-or-filter ...]
 
 Find candidate duplicate code in Clojure, Java, Go, TypeScript, Rust, and
@@ -48,8 +55,8 @@ Arguments:
                     path contains this text are compared.
 
 With no paths, source files under the project root are compared. Directories
-named test, tests, spec, specs, vendor, node_modules, and target are skipped,
-as are *_test.go, *.spec.ts, test_*.py, and *_test.py files.
+named {_skipped_directory_text()} are skipped, as are *_test.go, *.test.cts,
+*.spec.cts, *.spec.ts, test_*.py, and *_test.py files.
 
 Clojure compares every top-level form except ns. The other languages compare
 functions and methods. A form is only compared with forms in the same language.
@@ -159,25 +166,55 @@ def parse_args(argv: list[str] | None = None) -> Options:
     return options
 
 
-def _git_status(root: Path):
-    args = ["git", "status", "--porcelain"]
-    return subprocess.run(args, cwd=root, check=False, capture_output=True, text=True)
+class GitStatusError(Exception):
+    """git status could not be read. `code` is git's own status."""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _git(root: Path, *args: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", os.fspath(root), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if result.returncode != 0:
+        message = os.fsdecode(result.stderr).strip() or "git status failed"
+        raise GitStatusError(result.returncode, message)
+    return result.stdout
 
 
 def _changed_files(root: Path) -> list[Path]:
-    result = _git_status(root)
-    if result.returncode != 0:
-        print(result.stderr.strip() or "git status failed", file=sys.stderr)
-        return []
+    """Added and modified files under `root`, as paths from the repo root.
+
+    `-z` keeps spaces and non-ASCII names intact. A missing path, including a
+    deletion, is left out. A rename is the new file only.
+    """
+
+    toplevel = Path(os.fsdecode(_git(root, "rev-parse", "--show-toplevel")).strip())
+    status = _git(
+        root,
+        "status",
+        "--porcelain",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--",
+        ".",
+    )
+    root_resolved = root.resolve()
     found: list[Path] = []
-    for line in result.stdout.splitlines():
-        if len(line) < 4:
+    for entry in status.split(b"\0"):
+        if len(entry) <= 3:
             continue
-        path_text = line[3:].strip()
-        if " -> " in path_text:
-            path_text = path_text.split(" -> ", 1)[1]
-        path_text = path_text.strip('"')
-        found.append((root / path_text).resolve())
+        path = (toplevel / os.fsdecode(entry[3:])).resolve()
+        if not path.is_file() or not path.is_relative_to(root_resolved):
+            continue
+        found.append(path)
     return found
 
 
@@ -195,14 +232,22 @@ def _positionals(root: Path, args: list[str]) -> tuple[list[Path], list[str]]:
     return existing, filters
 
 
-def _tracked_source(path: Path) -> bool:
+def _tracked_source(path: Path, root: Path | None = None) -> bool:
+    parts = path.parts
+    if root is not None:
+        try:
+            parts = path.resolve().relative_to(root.resolve()).parts
+        except ValueError:
+            return False
+    if not SKIP_DIRS.isdisjoint(parts):
+        return False
     if language_of(path) is None:
         return False
     return not is_test_file(path)
 
 
 def _changed_source(root: Path) -> list[Path]:
-    return [path for path in _changed_files(root) if _tracked_source(path)]
+    return [path for path in _changed_files(root) if _tracked_source(path, root)]
 
 
 def _explicit_files(existing: list[Path]) -> list[Path]:
@@ -249,7 +294,11 @@ def run(argv: list[str] | None = None) -> int:
         return options.exit_code
 
     root = options.project_root.resolve()
-    files = select_files(options)
+    try:
+        files = select_files(options)
+    except GitStatusError as exc:
+        print(exc.message, file=sys.stderr)
+        return exc.code
     if not files:
         print("No source files to analyze.")
         return 0

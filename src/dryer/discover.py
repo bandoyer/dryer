@@ -69,6 +69,8 @@ def is_test_file(path: str | Path) -> bool:
             ".spec.tsx",
             ".test.mts",
             ".spec.mts",
+            ".test.cts",
+            ".spec.cts",
         )
     ):
         return True

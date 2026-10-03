@@ -64,6 +64,20 @@ class Splice:
         self.items = items
 
 
+_NEED = object()
+
+
+def _close_coll(kind: str, line: int, items: list, fn_star: bool):
+    if fn_star:
+        return Coll("list", line, items=[Sym("fn*", line), *items])
+    if kind == "map":
+        if len(items) % 2:
+            raise ReadError(line, "map literal has an odd number of forms")
+        pairs = [(items[index], items[index + 1]) for index in range(0, len(items), 2)]
+        return Coll("map", line, pairs=pairs)
+    return Coll(kind, line, items=list(items))
+
+
 class Reader:
     def __init__(self, text: str):
         self.text = text
@@ -146,79 +160,69 @@ class Reader:
             return Kw("", line)
         return Kw(self.read_token(), line)
 
-    def read_collection(self, end: str, kind: str) -> Coll:
-        line = self.line
-        self.get()
-        items: list = []
+    def read_form(self):
+        """One form. None and Splice are real results.
+
+        An explicit stack: a 1,200-deep form must not raise RecursionError.
+        """
+
+        stack: list[tuple] = []
+        produced = _NEED
         while True:
-            self.skip_ws()
+            if produced is _NEED:
+                produced = self._next(stack)
+                continue
+            if not stack:
+                return produced
+            produced = self._deliver(stack, produced)
+
+    def _next(self, stack: list[tuple]):
+        self.skip_ws()
+        if stack and stack[-1][0] == "coll":
+            _tag, end, kind, line, items, fn_star = stack[-1]
             if self.eof():
                 raise ReadError(line, f"unterminated {kind}")
             if self.peek() == end:
                 self.get()
-                break
-            form = self.read_form()
-            if form is None:
-                continue
-            if isinstance(form, Splice):
-                items.extend(form.items)
-                continue
-            items.append(form)
-        if kind == "map":
-            if len(items) % 2:
-                raise ReadError(line, "map literal has an odd number of forms")
-            pairs = [(items[i], items[i + 1]) for i in range(0, len(items), 2)]
-            return Coll("map", line, pairs=pairs)
-        return Coll(kind, line, items=items)
+                stack.pop()
+                return _close_coll(kind, line, items, fn_star)
+        if self.eof():
+            raise ReadError(self.line, "unexpected end of file")
+        return self._open(stack)
 
-    def _wrap(self, name: str, line: int) -> Coll:
-        inner = self.read_form()
-        items = [Sym(name, line)]
-        if inner is not None and not isinstance(inner, Splice):
-            items.append(inner)
-        return Coll("list", line, items=items)
-
-    def read_dispatch(self):
-        line = self.line
-        self.get()
-        ch = self.peek()
-        if ch is None:
-            raise ReadError(line, "incomplete dispatch")
-        if ch == "_":
-            self.get()
-            self.read_form()
+    def _deliver(self, stack: list[tuple], produced):
+        frame = stack[-1]
+        tag = frame[0]
+        if tag == "coll":
+            items = frame[4]
+            if produced is None:
+                return _NEED
+            if isinstance(produced, Splice):
+                items.extend(produced.items)
+            else:
+                items.append(produced)
+            return _NEED
+        stack.pop()
+        if tag == "wrap":
+            _tag, name, line = frame
+            items = [Sym(name, line)]
+            if produced is not None and not isinstance(produced, Splice):
+                items.append(produced)
+            return Coll("list", line, items=items)
+        if tag == "discard":
             return None
-        if ch == "{":
-            return self.read_collection("}", "set")
-        if ch == "(":
-            inner = self.read_collection(")", "list")
-            return Coll("list", line, items=[Sym("fn*", line), *inner.items])
-        if ch == '"':
-            self.read_string()
-            return Lit(line)
-        if ch == "?":
-            self.get()
-            splicing = False
-            if self.peek() == "@":
-                self.get()
-                splicing = True
-            return self.read_cond(splicing)
-        if ch == ":":
-            self.get()
-            if self.peek() == ":":
-                self.get()
-            elif self.peek() not in (None, "{") and self.peek() not in _WHITESPACE:
-                self.read_token()
-            return self.read_form()
-        self.read_token()
-        self.read_form()
-        return Lit(line)
+        if tag == "meta":
+            return _NEED
+        if tag == "lit":
+            return Lit(frame[1])
+        if tag == "cond":
+            return self._finish_cond(frame[1], produced)
+        raise AssertionError(tag)
 
-    def read_cond(self, splicing: bool):
-        form = self.read_form()
-        if not isinstance(form, Coll) or form.kind != "list":
+    def _finish_cond(self, splicing: bool, produced):
+        if not isinstance(produced, Coll) or produced.kind != "list":
             raise ReadError(self.line, "reader conditional body must be a list")
-        chosen = _chosen_branch(form.items)
+        chosen = _chosen_branch(produced.items)
         if chosen is None:
             return None
         if not splicing:
@@ -228,18 +232,21 @@ class Reader:
             raise ReadError(self.line, "splicing reader conditional needs a collection")
         return spliced
 
-    def read_form(self):
-        self.skip_ws()
-        if self.eof():
-            raise ReadError(self.line, "unexpected end of file")
+    def _open(self, stack: list[tuple]):
         ch = self.peek()
         line = self.line
         if ch == "(":
-            return self.read_collection(")", "list")
+            self.get()
+            stack.append(("coll", ")", "list", line, [], False))
+            return _NEED
         if ch == "[":
-            return self.read_collection("]", "vector")
+            self.get()
+            stack.append(("coll", "]", "vector", line, [], False))
+            return _NEED
         if ch == "{":
-            return self.read_collection("}", "map")
+            self.get()
+            stack.append(("coll", "}", "map", line, [], False))
+            return _NEED
         if ch == '"':
             return self.read_string()
         if ch == "\\":
@@ -248,30 +255,74 @@ class Reader:
             return self.read_keyword()
         if ch == "'":
             self.get()
-            return self._wrap("quote", line)
+            stack.append(("wrap", "quote", line))
+            return _NEED
         if ch == "@":
             self.get()
-            return self._wrap("deref", line)
+            stack.append(("wrap", "deref", line))
+            return _NEED
         if ch == "`":
             self.get()
-            return self._wrap("syntax-quote", line)
+            stack.append(("wrap", "syntax-quote", line))
+            return _NEED
         if ch == "~":
             self.get()
             name = "unquote"
             if self.peek() == "@":
                 self.get()
                 name = "unquote-splicing"
-            return self._wrap(name, line)
+            stack.append(("wrap", name, line))
+            return _NEED
         if ch == "^":
             self.get()
-            self.read_form()
-            return self.read_form()
+            stack.append(("meta",))
+            return _NEED
         if ch == "#":
-            return self.read_dispatch()
+            return self._dispatch(stack, line)
         token = self.read_token()
         if _NUMBER.match(token):
             return Lit(line)
         return Sym(token, line)
+
+    def _dispatch(self, stack: list[tuple], line: int):
+        self.get()
+        ch = self.peek()
+        if ch is None:
+            raise ReadError(line, "incomplete dispatch")
+        if ch == "_":
+            self.get()
+            stack.append(("discard",))
+            return _NEED
+        if ch == "{":
+            brace = self.line
+            self.get()
+            stack.append(("coll", "}", "set", brace, [], False))
+            return _NEED
+        if ch == "(":
+            self.get()
+            stack.append(("coll", ")", "list", line, [], True))
+            return _NEED
+        if ch == '"':
+            self.read_string()
+            return Lit(line)
+        if ch == "?":
+            self.get()
+            splicing = False
+            if self.peek() == "@":
+                self.get()
+                splicing = True
+            stack.append(("cond", splicing))
+            return _NEED
+        if ch == ":":
+            self.get()
+            if self.peek() == ":":
+                self.get()
+            elif self.peek() not in (None, "{") and self.peek() not in _WHITESPACE:
+                self.read_token()
+            return _NEED
+        self.read_token()
+        stack.append(("lit", line))
+        return _NEED
 
 
 def _branch_name(feature):
@@ -341,33 +392,18 @@ def _children(form):
 
 def max_line(form) -> int:
     best = getattr(form, "line", 1) or 1
-    for child in _children(form):
-        if child is not None:
-            best = max(best, max_line(child))
+    stack = [form]
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        best = max(best, getattr(current, "line", 1) or 1)
+        if isinstance(current, Coll):
+            stack.extend(_children(current))
     return best
 
 
-def _normalize_list(form):
-    if not form.items:
-        return [K("list"), K("literal")]
-    head_form, *args = form.items
-    return [K("list"), normalize(head_form, True), *[normalize(arg, False) for arg in args]]
-
-
-def normalize(form, head: bool = False):
-    """dry4clj's `normalize-form`. Collection heads are normalized in full."""
-
-    if isinstance(form, Coll):
-        if form.kind == "list":
-            return _normalize_list(form)
-        if form.kind == "vector":
-            return [K("vector"), *[normalize(item, False) for item in form.items]]
-        if form.kind == "set":
-            return [K("set"), *[normalize(item, False) for item in form.items]]
-        if form.kind == "map":
-            pairs = [[normalize(key, False), normalize(value, False)] for key, value in form.pairs]
-            return [K("map"), *pairs]
-        return [K("literal")]
+def _normalize_atom(form, head: bool):
     if isinstance(form, Sym):
         if head:
             return [K("symbol"), form.name]
@@ -375,6 +411,69 @@ def normalize(form, head: bool = False):
     if isinstance(form, Kw):
         return K("keyword")
     return K("literal")
+
+
+def _norm_children(form) -> list[tuple[object, bool]]:
+    if form.kind == "list":
+        if not form.items:
+            return []
+        head_form, *args = form.items
+        return [(head_form, True), *[(arg, False) for arg in args]]
+    if form.kind in {"vector", "set"}:
+        return [(item, False) for item in form.items]
+    if form.kind == "map":
+        children = []
+        for key, value in form.pairs:
+            children.append((key, False))
+            children.append((value, False))
+        return children
+    return []
+
+
+def _assemble_form(form, cache):
+    if form.kind == "list":
+        if not form.items:
+            return [K("list"), K("literal")]
+        head_form, *args = form.items
+        return [
+            K("list"),
+            cache[(id(head_form), True)],
+            *[cache[(id(arg), False)] for arg in args],
+        ]
+    if form.kind == "vector":
+        return [K("vector"), *[cache[(id(item), False)] for item in form.items]]
+    if form.kind == "set":
+        return [K("set"), *[cache[(id(item), False)] for item in form.items]]
+    if form.kind == "map":
+        pairs = [
+            [cache[(id(key), False)], cache[(id(value), False)]] for key, value in form.pairs
+        ]
+        return [K("map"), *pairs]
+    return [K("literal")]
+
+
+def normalize(form, head: bool = False):
+    """dry4clj's `normalize-form`. Collection heads are normalized in full."""
+
+    if not isinstance(form, Coll):
+        return _normalize_atom(form, head)
+    cache = {}
+    stack: list[tuple] = [(form, head, False)]
+    while stack:
+        current, is_head, expanded = stack.pop()
+        key = (id(current), is_head)
+        if not expanded:
+            if key in cache:
+                continue
+            if not isinstance(current, Coll):
+                cache[key] = _normalize_atom(current, is_head)
+                continue
+            stack.append((current, is_head, True))
+            for child, child_head in reversed(_norm_children(current)):
+                stack.append((child, child_head, False))
+            continue
+        cache[key] = _assemble_form(current, cache)
+    return cache[(id(form), head)]
 
 
 def is_candidate_form(form) -> bool:

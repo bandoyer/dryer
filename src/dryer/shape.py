@@ -18,38 +18,91 @@ class K:
         return ":" + self.name
 
 
-def pr(node) -> str:
-    """Print a normalized node the way Clojure `pr-str` prints it."""
-
+def _pr_atom(node) -> str:
     if isinstance(node, K):
         return ":" + node.name
     if isinstance(node, str):
         escaped = node.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
-    if isinstance(node, list):
-        return "[" + " ".join(pr(child) for child in node) + "]"
     raise TypeError(f"cannot print {node!r}")
+
+
+def pr(node) -> str:
+    """Print a normalized node the way Clojure `pr-str` prints it."""
+
+    if not isinstance(node, list):
+        return _pr_atom(node)
+    # Post-order. A 1,200-deep tree must not raise RecursionError.
+    done: dict[int, str] = {}
+    stack: list[tuple[list, bool]] = [(node, False)]
+    while stack:
+        current, expanded = stack.pop()
+        key = id(current)
+        if expanded:
+            pieces = []
+            for child in current:
+                if isinstance(child, list):
+                    pieces.append(done[id(child)])
+                else:
+                    pieces.append(_pr_atom(child))
+            done[key] = "[" + " ".join(pieces) + "]"
+            continue
+        if key in done:
+            continue
+        stack.append((current, True))
+        for child in reversed(current):
+            if isinstance(child, list):
+                stack.append((child, False))
+    return done[id(node)]
 
 
 def node_count(node) -> int:
     """One plus the count of every nested node. Atoms count as one."""
 
-    if isinstance(node, list):
-        return 1 + sum(node_count(child) for child in node)
-    return 1
+    if not isinstance(node, list):
+        return 1
+    total = 0
+    stack: list = [node]
+    while stack:
+        current = stack.pop()
+        total += 1
+        if isinstance(current, list):
+            stack.extend(current)
+    return total
 
 
 def fingerprints(node) -> frozenset[str]:
-    found: set[str] = set()
-
-    def walk(form) -> None:
-        found.add(pr(form))
-        if isinstance(form, list):
-            for child in form:
-                walk(child)
-
-    walk(node)
-    return frozenset(found)
+    if not isinstance(node, list):
+        return frozenset({pr(node)})
+    done: dict[int, str] = {}
+    stack: list[tuple[list, bool]] = [(node, False)]
+    while stack:
+        current, expanded = stack.pop()
+        key = id(current)
+        if expanded:
+            pieces = []
+            for child in current:
+                if isinstance(child, list):
+                    pieces.append(done[id(child)])
+                else:
+                    pieces.append(_pr_atom(child))
+            done[key] = "[" + " ".join(pieces) + "]"
+            continue
+        if key in done:
+            continue
+        stack.append((current, True))
+        for child in reversed(current):
+            if isinstance(child, list):
+                stack.append((child, False))
+    atoms: set[str] = set()
+    pending: list = [node]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, list):
+            pending.extend(current)
+        else:
+            atoms.add(_pr_atom(current))
+    return frozenset(set(done.values()) | atoms)
 
 
 def jaccard(left: frozenset[str], right: frozenset[str]) -> float:

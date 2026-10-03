@@ -599,3 +599,14 @@ def test_keep_uses_the_line_and_node_minimums():
     assert _keep(_entry("a.py", 1, 4, {"q"}, nodes=20), 4, 20) is True
     assert _keep(_entry("a.py", 1, 3, {"q"}, nodes=20), 4, 20) is False
     assert _keep(_entry("a.py", 1, 4, {"q"}, nodes=19), 4, 20) is False
+
+
+def test_a_deep_expression_is_read():
+    expr = " + ".join(["1"] * 1200)
+    entries, warning = entries_in_source("python", f"def place():\n    return {expr}\n", "app.py", "app.py")
+    assert warning is None
+    assert entries
+    nested = "(inc " * 1200 + "x" + ")" * 1200
+    entries, warning = entries_in_source("clojure", f"(defn place [] {nested})\n", "app.clj", "app.clj")
+    assert warning is None
+    assert entries

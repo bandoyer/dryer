@@ -73,8 +73,9 @@ def _rust_in_tests(data: bytes, node) -> bool:
 
 def _java_nodes(data: bytes, root) -> list:
     found = []
-
-    def visit(node) -> None:
+    stack = [root]
+    while stack:
+        node = stack.pop()
         if node.type == "method_declaration":
             nested = _inside(
                 node,
@@ -82,11 +83,8 @@ def _java_nodes(data: bytes, root) -> list:
             )
             if _has(node, "block") and not nested:
                 found.append(node)
-            return
-        for child in node.children:
-            visit(child)
-
-    visit(root)
+            continue
+        stack.extend(reversed(node.children))
     return found
 
 

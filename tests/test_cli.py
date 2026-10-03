@@ -1,8 +1,18 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from dryer.cli import _changed_files, _count, _tracked_source, main, parse_args, run, select_files
+from dryer.cli import (
+    GitStatusError,
+    _changed_files,
+    _count,
+    _tracked_source,
+    main,
+    parse_args,
+    run,
+    select_files,
+)
 from dryer.discover import is_test_file, iter_source_files, language_of
 
 
@@ -28,6 +38,8 @@ def test_help_does_not_scan(capsys):
     assert run(["--help"]) == 0
     out = capsys.readouterr().out
     assert "Usage: dryer" in out
+    assert "__pycache__" in out
+    assert ".test.cts" in out
     assert "--threshold" in out
 
 
@@ -153,6 +165,8 @@ def test_names_that_are_tests():
         "ui/a.spec.tsx",
         "ui/a.test.mts",
         "ui/a.spec.mts",
+        "ui/a.test.cts",
+        "ui/a.spec.cts",
         "tests/conftest.py",
         "pkg/foo_test.py",
         "pkg/test_foo.py",
@@ -163,54 +177,71 @@ def test_names_that_are_tests():
     assert not is_test_file("src/app.py")
 
 
-class _Git:
-    def __init__(self, returncode, stdout, stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
+def _init_repo(path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "dev@example.com"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Dev"], cwd=path, check=True)
 
 
-def test_changed_files_reads_porcelain(tmp_path, monkeypatch):
-    stdout = ' M src/a.py\nR  old.py -> src/b.py\n?? "src/c d.py"\n\nX\n'
-    monkeypatch.setattr(
-        "dryer.cli.subprocess.run",
-        lambda *args, **kwargs: _Git(0, stdout),
-    )
-    assert _changed_files(tmp_path) == [
-        (tmp_path / "src/a.py").resolve(),
-        (tmp_path / "src/b.py").resolve(),
-        (tmp_path / "src/c d.py").resolve(),
-    ]
+def _commit(path: Path, message: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", message], cwd=path, check=True, capture_output=True)
 
 
-def test_changed_files_reports_git_failure(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(
-        "dryer.cli.subprocess.run",
-        lambda *args, **kwargs: _Git(1, "", "fatal: not a git repository\n"),
-    )
-    assert _changed_files(tmp_path) == []
-    assert capsys.readouterr().err == "fatal: not a git repository\n"
+def test_changed_files_reads_real_status(tmp_path):
+    _init_repo(tmp_path)
+    write_source(tmp_path, "src/a.py", "x = 1\n")
+    write_source(tmp_path, "src/old.py", "x = 1\n")
+    write_source(tmp_path, "gone.py", "x = 1\n")
+    _commit(tmp_path, "base")
+    (tmp_path / "gone.py").unlink()
+    subprocess.run(["git", "mv", "src/old.py", "src/b.py"], cwd=tmp_path, check=True, capture_output=True)
+    write_source(tmp_path, "src/c d.py", "x = 1\n")
+    write_source(tmp_path, "src/café.py", "x = 1\n")
+    write_source(tmp_path, "fresh/nested/new.py", "x = 1\n")
+    found = set(_changed_files(tmp_path))
+    assert (tmp_path / "src/b.py").resolve() in found
+    assert (tmp_path / "src/c d.py").resolve() in found
+    assert (tmp_path / "src/café.py").resolve() in found
+    assert (tmp_path / "fresh/nested/new.py").resolve() in found
+    assert (tmp_path / "gone.py").resolve() not in found
+    assert (tmp_path / "src/old.py").resolve() not in found
 
-    monkeypatch.setattr(
-        "dryer.cli.subprocess.run",
-        lambda *args, **kwargs: _Git(1, "", "  \n"),
-    )
-    assert _changed_files(tmp_path) == []
-    assert capsys.readouterr().err == "git status failed\n"
+
+def test_changed_files_reports_git_failure(tmp_path, capsys):
+    with pytest.raises(GitStatusError) as caught:
+        _changed_files(tmp_path)
+    assert caught.value.code == 128
+    assert "not a git repository" in caught.value.message
+    assert capsys.readouterr().err == ""
+
+    code = run(["--changed", "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 128
+    assert "not a git repository" in captured.err
+    assert "No source files" not in captured.out
 
 
-def test_changed_limits_the_report(tmp_path, monkeypatch, capsys):
+def test_an_empty_git_error_uses_the_fallback_text(monkeypatch, tmp_path):
+    def fail(args, **kwargs):
+        return subprocess.CompletedProcess(args, 128, b"", b"   \n")
+
+    monkeypatch.setattr("dryer.cli.subprocess.run", fail)
+    with pytest.raises(GitStatusError, match="git status failed") as caught:
+        _changed_files(tmp_path)
+    assert caught.value.code == 128
+
+
+def test_changed_limits_the_report(tmp_path, capsys):
     body = "def alpha(xs):\n    ys = filter(xs, odd)\n    zs = map(ys, inc)\n    return list(zs)\n"
     other = "def beta(items):\n    kept = filter(items, even)\n    out = map(kept, dec)\n    return list(out)\n"
+    _init_repo(tmp_path)
+    write_source(tmp_path, "src/c.py", body)
+    _commit(tmp_path, "base")
     write_source(tmp_path, "src/a.py", body)
     write_source(tmp_path, "src/b.py", other)
-    write_source(tmp_path, "src/c.py", body)
     write_source(tmp_path, "tests/test_a.py", other)
-    stdout = " M src/a.py\n M src/b.py\n M tests/test_a.py\n ?? README.md\n"
-    monkeypatch.setattr(
-        "dryer.cli.subprocess.run",
-        lambda *args, **kwargs: _Git(0, stdout),
-    )
+    write_source(tmp_path, "README.md", "notes\n")
     assert run(["--root", str(tmp_path), "--changed", "--min-lines", "3", "--min-nodes", "1"]) == 0
     out = capsys.readouterr().out
     assert "src/a.py" in out
@@ -275,35 +306,28 @@ def test_source_root_limits_the_walk(tmp_path):
     assert files == ["src/a.py"]
 
 
-def test_git_status_asks_for_text_without_checking(tmp_path, monkeypatch):
-    seen = {}
-
-    def fake_run(args, **kwargs):
-        seen["args"] = args
-        seen["kwargs"] = kwargs
-        return _Git(0, " M src/a.py\n")
-
-    monkeypatch.setattr("dryer.cli.subprocess.run", fake_run)
-    assert _changed_files(tmp_path) == [(tmp_path / "src/a.py").resolve()]
-    assert seen["args"] == ["git", "status", "--porcelain"]
-    assert seen["kwargs"]["check"] is False
-    assert seen["kwargs"]["capture_output"] is True
-    assert seen["kwargs"]["text"] is True
-    assert seen["kwargs"]["cwd"] == tmp_path
+def test_changed_from_a_subdirectory_stays_inside_it(tmp_path):
+    repo = tmp_path / "repo"
+    sub = repo / "sub"
+    repo.mkdir()
+    _init_repo(repo)
+    write_source(repo, "src/above.py", "x = 1\n")
+    write_source(sub, "src/below.py", "x = 1\n")
+    chosen = select_files(parse_args(["--root", str(sub), "--changed"]))
+    assert chosen == [(sub / "src/below.py").resolve()]
 
 
-def test_a_status_line_of_four_characters_is_a_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "dryer.cli.subprocess.run",
-        lambda *args, **kwargs: _Git(0, " M a\n"),
-    )
-    assert _changed_files(tmp_path) == [(tmp_path / "a").resolve()]
+def test_a_short_untracked_name_is_a_file(tmp_path):
+    _init_repo(tmp_path)
+    write_source(tmp_path, "a.py", "x = 1\n")
+    assert _changed_files(tmp_path) == [(tmp_path / "a.py").resolve()]
 
 
 def test_changed_source_skips_unknown_and_test_files(tmp_path):
     assert _tracked_source(tmp_path / "README.md") is False
     assert _tracked_source(tmp_path / "tests" / "test_a.py") is False
     assert _tracked_source(tmp_path / "src" / "a.py") is True
+    assert _tracked_source(tmp_path / "target" / "app.py") is False
 
 
 def test_test_files_and_skipped_directories_are_left_out(tmp_path):
@@ -311,8 +335,11 @@ def test_test_files_and_skipped_directories_are_left_out(tmp_path):
     write_source(tmp_path, "src/foo_test.py", "x = 1\n")
     write_source(tmp_path, "target/app.py", "x = 1\n")
     write_source(tmp_path, "tests/app.py", "x = 1\n")
+    write_source(tmp_path, "src/app.test.cts", "export {}\n")
+    write_source(tmp_path, "src/app.spec.cts", "export {}\n")
+    write_source(tmp_path, "src/widget.cts", "export {}\n")
     relative = [path.relative_to(tmp_path).as_posix() for path in iter_source_files([tmp_path])]
-    assert relative == ["src/app.py"]
+    assert sorted(relative) == ["src/app.py", "src/widget.cts"]
 
 
 def test_a_second_report_replaces_the_snapshot(tmp_path, capsys):
