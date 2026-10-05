@@ -57,7 +57,7 @@ The features you can drive, and the end state that proves each one, are in [feat
 
 - Put transcripts where the caller asks, for example `<run folder>/artifacts/verify/round-1/criterion-1.txt`. Never put them inside the scratch project: cleanup removes it.
 - Proof is the transcript: the action (command), what the user saw (stdout, stderr, exit code), and the side effects (`.metrics/dry.edn` written, tracked files unchanged). Check all three.
-- Use the real user path only: the `./dryer` launcher with real arguments, or the project's own script. Don't import `dryer` in Python, and don't treat `pytest` as proof.
+- Use the real user path only: the `./dryer` launcher with real arguments, or the project's own script. The install-minimum recipe is the one exception: it runs `python -m dryer` from an environment that holds the declared lowest dependencies. Don't import `dryer` in Python, and don't treat `pytest` as proof.
 - Exit codes: `0` the report was written, `1` usage error, `2` unknown `--format`. A Python traceback exits `1` too, so read stderr.
 
 ## Cleanup

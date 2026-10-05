@@ -10,7 +10,7 @@ This folder is the maintained source for verifying what a dryer user sees. Read 
 
 ## Driving conventions
 
-- Run every dryer command through `$vd drive <project> <transcript> <args...>`, and every project command through `$vd exec`.
+- Run every dryer command through `$vd drive <project> <transcript> <args...>`, and every project command through `$vd exec`. The one exception is [install-minimum](./install-minimum.md), which runs dryer from another environment through `exec`.
 - Write source files into a scratch project with `$vd put <project> <path>`, content on stdin.
 - Treat every command as literal. Keep quoted text unchanged.
 - `--min-lines 4` and `--min-nodes 20` are the defaults. A one-line or one-expression function needs `--min-lines 1 --min-nodes 1`, or dryer skips it before comparing.
@@ -27,4 +27,5 @@ This folder is the maintained source for verifying what a dryer user sees. Read 
 - [Find duplicates](./find-duplicates.md) covers the text and EDN reports, path and filter arguments, skipped test files, functions that share a line range, and the `.metrics/dry.edn` file.
 - [Score a pair of functions](./score-pair.md) covers what normalization keeps and drops: renamed locals and literal text still match, a different callee, operator, or embedded call does not.
 - [Changed files](./changed-files.md) covers `--changed`, which compares only the files git reports as added or modified.
+- [Install with the lowest dependencies](./install-minimum.md) covers running dryer with every direct dependency at the lowest version `pyproject.toml` allows.
 - [A project's measure script](./project-measure.md) covers a real project's own script that calls dryer, such as bujo's `scripts/measure`.
