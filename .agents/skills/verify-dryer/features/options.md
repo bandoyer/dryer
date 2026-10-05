@@ -20,7 +20,7 @@ Preconditions:
 
 - **threshold-range.** For each of `nan`, `inf`, `+inf`, `1e309`, `1.79769313486231580794e308`, `1.5`, and `1.0000000000000002`, run `$vd drive "$project" "$T" --threshold <v>`. Pass, for each: exit `1`, stderr starts with `--threshold requires a number from 0 to 1` followed by the help, stdout is empty, and the transcript shows no `.metrics/dry.edn`. Then run `$vd drive "$project" "$T" --threshold 1` and `$vd drive "$project" "$T" --threshold 0`. Pass: exit `0`; `1` reports the fixture's two `DUPLICATE score=1.00` pairs, and `0` reports at least those two.
 - **count-options.** For each of `--min-lines` and `--min-nodes`, and each of `nan`, `inf`, `1e309`, and `abc`, run `$vd drive "$project" "$T" <option> <v>`. Pass, for each: exit `1`, stderr starts with `<option> requires an integer`, stdout is empty, and no `.metrics/dry.edn`. Then run `$vd drive "$project" "$T" --min-lines 0 --min-nodes 0`. Pass: exit `0` with the two pairs.
-- **help.** Run `$vd drive "$project" "$T" --help`. Pass: exit `0`, and stdout has `--threshold N` with `from 0 to 1, default 0.82`.
+- **help.** Run `$vd drive "$project" "$T" --help`. Pass: exit `0`, and the `--threshold N` entry reads `Minimum similarity score, from 0 to 1,` with `default 0.82.` on the next line, as the help wraps at 78 columns.
 
 ## Gotchas
 
