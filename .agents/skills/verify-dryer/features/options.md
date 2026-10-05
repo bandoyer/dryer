@@ -5,7 +5,7 @@
 ## Sub-features
 
 - `threshold-range` `--threshold` takes a number from 0 to 1, both ends included. Anything else is rejected with `--threshold requires a number from 0 to 1`: text, `nan`, `inf`, a decimal too large for a float such as `1e309`, and any finite number above 1.
-- `count-options` `--min-lines` and `--min-nodes` take a non-negative integer, with no upper bound. Anything else is rejected with `<option> requires an integer`.
+- `count-options` `--min-lines` and `--min-nodes` take a non-negative integer, with no upper bound. Any other value is rejected with `<option> requires an integer`, except a negative one, which gets `<option> requires a value` (see Gotchas).
 
 ## How to get to it (user POV)
 
@@ -26,5 +26,5 @@ Preconditions:
 
 - A similarity score is never above 1, so a threshold above 1 would hide every pair. NaN would show every pair, because no score is below NaN. Both are rejected (#22).
 - `float()` reads `1e309` and `1.79769313486231580794e308` as infinity. `1.0000000000000001` rounds to exactly `1.0`, so it is accepted.
-- A negative value such as `--threshold -0.5` is rejected too, but with `--threshold requires a value`: dryer reads a value that starts with `-` as the next option.
+- A negative value such as `--threshold -0.5` or `--min-lines -1` is rejected too, but with `<option> requires a value`: dryer reads a value that starts with `-` as the next option.
 - The helper gives every scratch project a folder under `TMPDIR`. Run a recipe's `project`, `drive`, and `cleanup` calls in one sandboxed command, because each sandboxed command gets its own `TMPDIR`.
