@@ -17,16 +17,15 @@ Preconditions:
 - `uv` is installed. It fetches Python 3.11 if the machine lacks it, and needs network access once.
 - `project=$($vd project empty)`. `T` is the transcript path for the feature.
 
-- **install-minimum.** From the repo root, build the environment outside the checkout and record what it installed:
+- **install-minimum.** From the repo root, build the environment outside the checkout:
 
   ```bash
   env=$(mktemp -d)
   uv venv --python 3.11 "$env/venv"
   VIRTUAL_ENV="$env/venv" uv pip install --resolution lowest-direct -r pyproject.toml
-  VIRTUAL_ENV="$env/venv" uv pip freeze | grep '^tree-sitter'
   ```
 
-  Put one pair of functions in each language:
+  Put one pair of functions in each language, record what the environment holds, and run dryer from it:
 
   ```bash
   printf 'def a(x):\n    return f(x) + 1\n\ndef b(y):\n    return f(y) + 2\n' | $vd put "$project" p.py
@@ -34,12 +33,14 @@ Preconditions:
   printf 'package p\nfunc a(x int) int { return f(x) + 1 }\nfunc b(y int) int { return f(y) + 2 }\n' | $vd put "$project" g.go
   printf 'function a(x) { return f(x) + 1; }\nfunction b(y) { return f(y) + 2; }\n' | $vd put "$project" t.ts
   printf 'class J {\n  int a(int x) { return f(x) + 1; }\n  int b(int y) { return f(y) + 2; }\n}\n' | $vd put "$project" J.java
+  $vd exec "$project" "$T" env VIRTUAL_ENV="$env/venv" uv pip freeze
   $vd exec "$project" "$T" env PYTHONPATH="$PWD/src" "$env/venv/bin/python" -m dryer --edn --threshold 0 --min-lines 1 --min-nodes 1
   ```
 
-  Pass: the freeze lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the drive exits `0`, its stdout holds five pairs, one per `:language` (go, java, python, rust, typescript), and stderr has no `Traceback`. The transcript repeats the pairs under `.metrics/dry.edn`, so count stdout only. Remove `$env` afterwards.
+  Pass: the first transcript block lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the second exits `0`, its stdout holds five pairs, one per `:language` (go, java, python, rust, typescript), and stderr has no `Traceback`. The transcript repeats the pairs under `.metrics/dry.edn`, so count stdout only. Remove `$env` afterwards.
 
 ## Gotchas
 
+- This recipe runs dryer through `exec`, not `drive`. `drive` runs `./dryer`, which always uses the checkout's `.venv` with current dependencies, so it can't test the floors.
 - `-r pyproject.toml` installs only the dependencies, and `PYTHONPATH` runs this checkout's `src`, so nothing is written inside the checkout.
 - The language pack downloads each grammar on first parse and caches it per pack version under `~/.cache/tree-sitter-language-pack/v<version>`.

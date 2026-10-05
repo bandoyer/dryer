@@ -10,7 +10,7 @@ This folder is the maintained source for verifying what a dryer user sees. Read 
 
 ## Driving conventions
 
-- Run every dryer command through `$vd drive <project> <transcript> <args...>`, and every project command through `$vd exec`.
+- Run every dryer command through `$vd drive <project> <transcript> <args...>`, and every project command through `$vd exec`. The one exception is [install-minimum](./install-minimum.md), which runs dryer from another environment through `exec`.
 - Write source files into a scratch project with `$vd put <project> <path>`, content on stdin.
 - Treat every command as literal. Keep quoted text unchanged.
 - `--min-lines 4` and `--min-nodes 20` are the defaults. A one-line or one-expression function needs `--min-lines 1 --min-nodes 1`, or dryer skips it before comparing.
