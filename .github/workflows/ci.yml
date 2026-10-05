@@ -20,3 +20,15 @@ jobs:
       - run: pip install -e ".[dev]"
       # The first parse downloads each tree-sitter grammar.
       - run: python -m pytest -q
+
+  minimum:
+    # Every direct dependency at the lowest version pyproject.toml allows.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv
+      - run: uv pip install --system --resolution lowest-direct -e ".[dev]"
+      - run: python -m pytest -q
