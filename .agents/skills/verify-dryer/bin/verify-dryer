@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Check and drive this checkout's dryer against a scratch project. Run from anywhere.
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/../../../.." && pwd)
+dryer="$repo/dryer"
+scratch_prefix="$(realpath -m -- "${TMPDIR:-/tmp}")/dryer-verify."
+
+# Prints the scratch folder that holds path $1 after resolving `..` and symlinks, or fails.
+scratch_root() {
+  local path rest
+  path=$(realpath -m -- "$1")
+  rest=${path#"$scratch_prefix"}
+  [[ $rest != "$path" && -n $rest ]] || return 1
+  echo "$scratch_prefix${rest%%/*}"
+}
+
+# Fails unless $1 is a project inside a verify-dryer scratch folder.
+require_scratch() {
+  scratch_root "$2" >/dev/null || { echo "$1: refusing $2; it is not inside a verify-dryer scratch folder"; exit 1; }
+}
+
+usage() {
+  cat <<USAGE
+usage: verify-dryer doctor
+       verify-dryer project fixture | empty | <git repo>
+       verify-dryer put <project> <relative path>   (file content on stdin)
+       verify-dryer drive <project> <transcript> [dryer args...]
+       verify-dryer exec <project> <transcript> <command> [args...]
+       verify-dryer cleanup <project>
+USAGE
+  exit 2
+}
+
+commit_all() {
+  git -C "$1" add -A
+  git -C "$1" -c user.name=verify -c user.email=verify@localhost commit -qm "$2"
+}
+
+# Two Python functions and two Rust functions that differ only in local names
+# (each pair scores 1.0), a Go function unlike them, and a test file dryer skips.
+write_fixture() {
+  local project=$1
+  mkdir -p "$project/src/billing" "$project/src/tally" "$project/tests"
+  printf 'def invoice(order):\n    lines = filter(order.items, billable)\n    total = sum(map(lines, price))\n    return round(total * rate(order), 2)\n' >"$project/src/billing/invoice.py"
+  printf 'def receipt(sale):\n    kept = filter(sale.items, billable)\n    amount = sum(map(kept, price))\n    return round(amount * rate(sale), 2)\n' >"$project/src/billing/receipt.py"
+  printf 'fn tally(xs: &[i32]) -> i32 {\n    let kept = xs.iter().filter(|x| odd(**x));\n    let total: i32 = kept.map(|x| x * 2).sum();\n    total + bonus(xs.len())\n}\n\nfn count(items: &[i32]) -> i32 {\n    let picked = items.iter().filter(|i| odd(**i));\n    let sum: i32 = picked.map(|i| i * 2).sum();\n    sum + bonus(items.len())\n}\n' >"$project/src/tally/lib.rs"
+  printf 'package demo\n\nfunc greet(name string) string {\n\tif name == "" {\n\t\treturn "hello"\n\t}\n\treturn "hello " + name\n}\n' >"$project/src/greet.go"
+  printf 'def test_invoice():\n    lines = filter(order.items, billable)\n    total = sum(map(lines, price))\n    return round(total * rate(order), 2)\n' >"$project/tests/test_invoice.py"
+  printf '.metrics/\n' >"$project/.gitignore"
+  git -C "$project" init -q
+  commit_all "$project" fixture
+}
+
+# Prints its arguments shell-quoted, each after a space.
+quoted() {
+  local arg
+  for arg in "$@"; do printf ' %q' "$arg"; done
+}
+
+# Runs "$@" in the project and appends the action, what the user saw, and the state left behind.
+record() {
+  local project=$1 transcript=$2 shown=$3
+  shift 3
+  mkdir -p "$(dirname "$transcript")"
+  local out err code before after
+  out=$(mktemp) err=$(mktemp)
+  before=$(sha256sum "$project/.metrics/dry.edn" 2>/dev/null | cut -c1-12 || true)
+  set +e
+  (cd "$project" && MISE_TRUSTED_CONFIG_PATHS="$project" MEASURE_TOOLS="$(dirname "$project")/tools" "$@") >"$out" 2>"$err"
+  code=$?
+  set -e
+  after=$(sha256sum "$project/.metrics/dry.edn" 2>/dev/null | cut -c1-12 || true)
+  {
+    echo "\$ (cd $project) $shown"
+    echo "date: $(date '+%F %T %Z')"
+    echo "dryer: $(git -C "$repo" rev-parse --short HEAD)$([[ -z "$(git -C "$repo" status --porcelain -- src dryer pyproject.toml)" ]] || echo ' + uncommitted changes')"
+    echo "exit code: $code"
+    echo "--- stdout"; cat "$out"
+    echo "--- stderr"; cat "$err"
+    echo "--- .metrics/dry.edn ${before:-absent} -> ${after:-absent}"
+    if [[ -n $after && $after != "$before" ]]; then cat "$project/.metrics/dry.edn"; fi
+    echo "--- tracked files changed (git status --short)"
+    git -C "$project" status --short --untracked-files=no | grep . || echo "(none)"
+    echo
+  } | tee -a "$transcript"
+  rm -f "$out" "$err"
+}
+
+case "${1:-}" in
+  doctor)
+    [[ -x "$dryer" ]] || { echo "doctor: no launcher at $dryer"; exit 1; }
+    "$dryer" --help >/dev/null 2>&1 || { echo "doctor: $dryer --help failed; run it once to build .venv"; exit 1; }
+    imported=$("$repo/.venv/bin/python" -c 'import dryer; print(dryer.__file__)')
+    [[ $imported == "$repo/src/dryer/__init__.py" ]] || { echo "doctor: .venv imports $imported, not this checkout's src"; exit 1; }
+    echo "doctor: ok"
+    echo "dryer:    $dryer ($("$repo/.venv/bin/python" --version))"
+    echo "imports:  $imported"
+    echo "checkout: $(git -C "$repo" rev-parse --short HEAD) on $(git -C "$repo" branch --show-current)$([[ -z "$(git -C "$repo" status --porcelain -- src dryer pyproject.toml)" ]] || echo ' + uncommitted changes')"
+    ;;
+  project)
+    [[ $# -eq 2 ]] || usage
+    scratch=$(mktemp -d "${scratch_prefix}XXXXXX")
+    if [[ $2 == fixture ]]; then
+      write_fixture "$scratch/project"
+    elif [[ $2 == empty ]]; then
+      mkdir -p "$scratch/project"
+      git -C "$scratch/project" init -q
+    else
+      git clone -q -- "$2" "$scratch/project"
+    fi
+    # A project's own measure script finds dryer through MEASURE_TOOLS; point it at this checkout.
+    mkdir -p "$scratch/tools"
+    for tool in dryer crapper mutator; do
+      source=$repo
+      [[ $tool == dryer ]] || source=$(realpath -m -- "$repo/../$tool")
+      ln -s "$source" "$scratch/tools/$tool"
+    done
+    echo "$scratch/project"
+    ;;
+  put)
+    [[ $# -eq 3 ]] || usage
+    require_scratch put "$2"
+    target=$(realpath -m -- "$2/$3")
+    [[ $target == "$(realpath -m -- "$2")/"* ]] || { echo "put: refusing $3; it leaves the project"; exit 1; }
+    mkdir -p "$(dirname "$target")"
+    cat >"$target"
+    echo "wrote ${target#"$(realpath -m -- "$2")/"}"
+    ;;
+  drive)
+    [[ $# -ge 3 ]] || usage
+    project=$2 transcript=$3
+    shift 3
+    require_scratch drive "$project"
+    record "$project" "$transcript" "dryer$(quoted "$@")" "$dryer" "$@"
+    ;;
+  exec)
+    [[ $# -ge 4 ]] || usage
+    project=$2 transcript=$3
+    shift 3
+    require_scratch exec "$project"
+    record "$project" "$transcript" "$(quoted "$@" | cut -c2-)" "$@"
+    ;;
+  cleanup)
+    [[ $# -eq 2 ]] || usage
+    root=$(scratch_root "$2") || { echo "cleanup: refusing to remove $2; it is not a verify-dryer scratch folder"; exit 1; }
+    path=$(realpath -m -- "$2")
+    [[ $path == "$root" || $path == "$root/project" ]] || { echo "cleanup: refusing to remove $2; pass the project or its scratch folder"; exit 1; }
+    rm -rf -- "$root"
+    echo "removed $root"
+    ;;
+  *) usage ;;
+esac
