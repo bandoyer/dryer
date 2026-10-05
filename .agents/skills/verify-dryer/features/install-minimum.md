@@ -37,7 +37,7 @@ Preconditions:
   $vd exec "$project" "$T" env PYTHONPATH="$PWD/src" "$env/venv/bin/python" -m dryer --edn --threshold 0 --min-lines 1 --min-nodes 1
   ```
 
-  Pass: the freeze lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the drive exits `0` with five `:score` entries, one per language, and no `Traceback` on stderr. Remove `$env` afterwards.
+  Pass: the freeze lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the drive exits `0`, its stdout holds five pairs, one per `:language` (go, java, python, rust, typescript), and stderr has no `Traceback`. The transcript repeats the pairs under `.metrics/dry.edn`, so count stdout only. Remove `$env` afterwards.
 
 ## Gotchas
 
