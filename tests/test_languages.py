@@ -216,6 +216,32 @@ mod tests {
     assert found[0].left.start_line == 1
 
 
+def test_two_similar_rust_tests_are_not_a_pair(tmp_path):
+    """#25: two `#[test]` functions were reported as duplicates of each other."""
+
+    write_source(tmp_path, "a.rs", RUST_LEFT)
+    write_source(tmp_path, "b.rs", RUST_RIGHT)
+    write_source(
+        tmp_path,
+        "c.rs",
+        """\
+#[test]
+fn totals_a_list() {
+    let xs = vec![1, 2, 3];
+    assert_eq!(total(&xs), 6);
+}
+
+#[test]
+fn totals_another_list() {
+    let items = vec![4, 5, 6];
+    assert_eq!(total(&items), 15);
+}
+""",
+    )
+    found = pairs(tmp_path)
+    assert [(item.left.file, item.right.file) for item in found] == [("a.rs", "b.rs")]
+
+
 def test_an_extra_statement_lowers_the_score(tmp_path):
     write_source(tmp_path, "a.java", JAVA_LEFT)
     write_source(
