@@ -2,8 +2,8 @@
 
 Clojure compares every top-level list except `ns`, matching dry4clj. The other
 languages compare the functions and methods crapper scores: bodies, not
-signatures alone, and not callbacks nested inside another function. Rust
-functions inside `mod tests` are test code and are skipped.
+signatures alone, and not callbacks nested inside another function. Rust test
+code is skipped, by the rule in `rust_test_code`.
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ from dryer.astnorm import normalize
 from dryer.clojure_read import is_candidate_form, max_line, normalize as normalize_clj
 from dryer.clojure_read import read_source
 from dryer.model import Entry
+from dryer.rust_test_code import is_test_item, is_test_only_file
 from dryer.shape import fingerprints, node_count
-from dryer.treesitter import child_of_type, descendants, end_line, node_text, parse, start_line
+from dryer.treesitter import child_of_type, descendants, end_line, parse, start_line
 
 _TS_FUNCTION = {
     "function_declaration",
@@ -56,17 +57,6 @@ def _python_nested(node) -> bool:
             return False
         if current.type == "function_definition":
             return True
-        current = current.parent
-    return False
-
-
-def _rust_in_tests(data: bytes, node) -> bool:
-    current = node.parent
-    while current is not None:
-        if current.type == "mod_item":
-            ident = child_of_type(current, "identifier")
-            if ident is not None and node_text(data, ident) == "tests":
-                return True
         current = current.parent
     return False
 
@@ -137,7 +127,7 @@ def _rust_nodes(data: bytes, root) -> list:
             continue
         if node.parent is not None and node.parent.type == "block":
             continue
-        if _rust_in_tests(data, node):
+        if is_test_item(data, node):
             continue
         found.append(node)
     return found
@@ -200,5 +190,7 @@ def entries_in_source(language: str, source: str, path: str, file: str) -> tuple
     if language == "clojure":
         return _clojure_entries(source, file)
     if language not in _PICKERS:
+        return [], None
+    if language == "rust" and is_test_only_file(path):
         return [], None
     return _tree_entries(language, source, path, file), None

@@ -99,8 +99,10 @@ DUPLICATE score=0.89
 | Java | methods with a body | constructors, abstract methods, methods inside anonymous or local classes |
 | Go | functions and methods with a body | function literals stay inside the enclosing function |
 | TypeScript | functions, methods, and top-level arrow functions | callbacks nested inside another function |
-| Rust | functions and methods with a body | functions inside `mod tests`, and closures |
+| Rust | functions and methods with a body | test code, and closures |
 | Python | functions and methods | functions nested inside another function |
+
+Rust test code is a function in a `mod tests`, or one that has a test attribute or sits in a `mod`, `impl`, or file that has one. A test attribute is `#[test]` or any path ending in `test` (`#[tokio::test]`), `#[rstest]`, `#[test_case]`, `#[test_matrix]`, `#[proptest]`, `#[property_test]`, `#[wasm_bindgen_test]`, `#[quickcheck]`, or a `cfg` that holds only in a test build (`#[cfg(test)]`, `#[cfg(all(test, ...))]`, and an inner `#![cfg(test)]`). `#[cfg(not(test))]` and `#[cfg(any(test, ...))]` are not. A module file that every crate root reaches only through test code, such as `src/checks.rs` after `#[cfg(test)] mod checks;` in `src/lib.rs`, is left out too. dryer follows `mod x;` from `src/lib.rs`, `src/main.rs`, and `src/bin/` by rustc's rules. A bare `mod tests;` counts as test code by its name, although rustc compiles that file in a normal build. This is the same rule crapper uses.
 
 Clojure reader conditionals keep the `:clj` branch, as dry4clj does. Syntax-quote is kept as a `syntax-quote` form rather than expanded.
 
