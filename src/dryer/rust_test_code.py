@@ -66,13 +66,18 @@ def _predicates(data: bytes, predicates):
 
 
 def _test_only(data: bytes, predicates) -> bool:
-    """A `cfg` predicate list that holds only in a test build: `test`, or `all(...)` with such a part."""
+    """A `cfg` predicate list that holds only in a test build: `test`, or `all(...)` with such a part.
 
-    for name, nested in _predicates(data, predicates):
-        if name == "test" and nested is None:
-            return True
-        if name == "all" and nested is not None and _test_only(data, nested):
-            return True
+    Unlike crapper's, it keeps the `all(...)` lists still to read on a list, not
+    the call stack, so a deeply nested `cfg` can't raise `RecursionError`."""
+
+    lists = [predicates]
+    while lists:
+        for name, nested in _predicates(data, lists.pop()):
+            if name == "test" and nested is None:
+                return True
+            if name == "all" and nested is not None:
+                lists.append(nested)
     return False
 
 

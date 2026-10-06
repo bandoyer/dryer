@@ -98,6 +98,22 @@ def test_rust_functions_with_other_attributes_are_compared(attribute):
     assert _compared(f"{attribute}\npub fn kept() {{}}\n") == ["kept"]
 
 
+def test_a_deeply_nested_cfg_does_not_deepen_the_stack():
+    """`cfg(all(all(...)))` 150 levels deep is read with fewer than 100 spare stack frames."""
+
+    depth = 150
+    test_only = "all(" * depth + "test" + ")" * depth
+    unix_only = "all(" * depth + "unix" + ")" * depth
+    source = f"pub fn kept() {{}}\n\n#[cfg({test_only})]\nfn hidden() {{}}\n\n#[cfg({unix_only})]\npub fn also_kept() {{}}\n"
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(len(inspect.stack()) + 100)
+    try:
+        compared = _compared(source)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert compared == ["kept", "also_kept"]
+
+
 def test_a_rust_file_marked_test_only_compares_nothing():
     assert _compared("#![cfg(test)]\n\npub fn helper() {}\n") == []
 
