@@ -26,6 +26,7 @@ This folder is the maintained source for verifying what a dryer user sees. Read 
 
 - [Find duplicates](./find-duplicates.md) covers the text and EDN reports, path and filter arguments, skipped test files, functions that share a line range, and the `.metrics/dry.edn` file.
 - [Score a pair of functions](./score-pair.md) covers what normalization keeps and drops: renamed locals and literal text still match, a different callee, operator, or embedded call does not.
+- [C#](./csharp.md) covers how dryer reads `.cs` files: a pair of C# methods, what a C# call keeps in the score, which members are compared, and which files are left out as a C# test project.
 - [Rust test code](./test-code.md) covers which Rust functions dryer leaves out as test code: test attributes, `#[cfg(test)]` modules and files, and module files the crate reaches only through test code.
 - [Number options](./options.md) covers `--threshold` (a number from 0 to 1) and `--min-lines` and `--min-nodes` (non-negative integers): any other value is a usage error.
 - [Changed files](./changed-files.md) covers `--changed`, which compares only the files git reports as added or modified.

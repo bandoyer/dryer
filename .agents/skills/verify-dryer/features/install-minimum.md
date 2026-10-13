@@ -33,14 +33,16 @@ Preconditions:
   printf 'package p\nfunc a(x int) int { return f(x) + 1 }\nfunc b(y int) int { return f(y) + 2 }\n' | $vd put "$project" g.go
   printf 'function a(x) { return f(x) + 1; }\nfunction b(y) { return f(y) + 2; }\n' | $vd put "$project" t.ts
   printf 'class J {\n  int a(int x) { return f(x) + 1; }\n  int b(int y) { return f(y) + 2; }\n}\n' | $vd put "$project" J.java
+  printf 'class C {\n  int a(int x) { return f(x) + 1; }\n  int b(int y) { return f(y) + 2; }\n}\n' | $vd put "$project" C.cs
   $vd exec "$project" "$T" env VIRTUAL_ENV="$env/venv" uv pip freeze
   $vd exec "$project" "$T" env PYTHONPATH="$PWD/src" "$env/venv/bin/python" -m dryer --edn --threshold 0 --min-lines 1 --min-nodes 1
   ```
 
-  Pass: the first transcript block lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the second exits `0`, its stdout holds five pairs, one per `:language` (go, java, python, rust, typescript), and stderr has no `Traceback`. The transcript repeats the pairs under `.metrics/dry.edn`, so count stdout only. Remove `$env` afterwards.
+  Pass: the first transcript block lists `tree-sitter==` and `tree-sitter-language-pack==` at the floors in `pyproject.toml`; the second exits `0`, its stdout holds six pairs, one per `:language` (csharp, go, java, python, rust, typescript), and stderr has no `Traceback`. The transcript repeats the pairs under `.metrics/dry.edn`, so count stdout only. Remove `$env` afterwards.
 
 ## Gotchas
 
 - This recipe runs dryer through `exec`, not `drive`. `drive` runs `./dryer`, which always uses the checkout's `.venv` with current dependencies, so it can't test the floors.
 - `-r pyproject.toml` installs only the dependencies, and `PYTHONPATH` runs this checkout's `src`, so nothing is written inside the checkout.
+- The C# grammar needs `tree-sitter` 0.25 or later. With 0.24 it fails to load: `Incompatible Language version 15. Must be between 13 and 14`.
 - The language pack downloads each grammar on first parse and caches it per pack version under `~/.cache/tree-sitter-language-pack/v<version>`.

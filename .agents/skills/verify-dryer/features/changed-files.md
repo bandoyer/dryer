@@ -23,5 +23,5 @@ Preconditions:
 
 ## Gotchas
 
-- `--changed` reads `git status`; an untracked file counts only once git sees it (`git add`).
+- `--changed` reads `git status --untracked-files=all`, so an untracked file counts as added.
 - A run outside a git repository fails. The fixture and `empty` projects are git repos.
