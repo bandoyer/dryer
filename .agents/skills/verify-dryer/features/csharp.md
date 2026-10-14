@@ -153,7 +153,7 @@ EOF
 
 Pass: exit `0`; the spans start on exactly these 15 lines: 5 (constructor), 9 (destructor), 15 (`Alpha`), 21 (`Beta`), 23 (`Count`), 26 (`get`), 27 (`set`), 29 (indexer), 30 (operator), 31 (conversion operator), 34 (`add`), 35 (`remove`), 42 (`Twice`), 47 (`Sum`), and 52 (`Value`). That is 105 `DUPLICATE` blocks. No span starts on line 13 (abstract), 14 (bodiless partial), 17 (local function), 18 (lambda), 22 (auto-property), or 41 (bodiless interface method).
 
-**csharp-test-projects.** Put one method in twelve folders, five project files, and two Python files:
+**csharp-test-projects.** Put one method in thirteen folders, seven project files, and two Python files:
 
 ```bash
 calc='class Calc
@@ -165,7 +165,7 @@ calc='class Calc
         return Scale(total, 2);
     }
 }'
-for dir in src/App src/Lib Runner.MicrosoftTestPlatform App.Tests App.UnitTests App.Test App.Test.Unit App.UnitTest tests Checks Probe Harness; do
+for dir in src/App src/Lib Runner.MicrosoftTestPlatform App.Tests App.UnitTests App.Test App.Test.Unit App.UnitTest tests Checks Probe Harness Meta; do
   printf '%s\n' "$calc" | $vd put "$project" "$dir/Calc.cs"
 done
 printf '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n' | $vd put "$project" src/Lib/Lib.csproj
@@ -173,6 +173,8 @@ printf '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <IsTestProject
 printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="NUnit" Version="4.2.2" />\n  </ItemGroup>\n</Project>\n' | $vd put "$project" Probe/Probe.csproj
 printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="Microsoft.Testing.Platform" />\n  </ItemGroup>\n</Project>\n' | $vd put "$project" Runner.MicrosoftTestPlatform/Runner.MicrosoftTestPlatform.csproj
 printf '<Project Sdk="MSTest.Sdk/4.2.2">\n  <ItemGroup>\n    <PackageReference Include="Moq" />\n  </ItemGroup>\n</Project>\n' | $vd put "$project" Harness/Harness.csproj
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="Microsoft.NET.Test.Sdk" />\n  </ItemGroup>\n</Project>\n' | $vd put "$project" App.UnitTest/App.UnitTest.csproj
+printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="MSTest" />\n  </ItemGroup>\n</Project>\n' | $vd put "$project" Meta/Meta.csproj
 printf 'def a(xs):\n    return f(xs) + 1\n' | $vd put "$project" App.Tests/a.py
 printf 'def b(ys):\n    return f(ys) + 2\n' | $vd put "$project" App.Tests/b.py
 ```
@@ -186,6 +188,6 @@ Then drive these four, with the files left untracked:
 
 ## Gotchas
 
-- A test project is found by its folder names, or by the nearest `.csproj` at or above the file: `<IsTestProject>true</IsTestProject>`, the `MSTest.Sdk` project SDK, or a PackageReference to Microsoft.NET.Test.Sdk, NUnit, xunit, xunit.v3, or MSTest.TestFramework. A reference to Microsoft.Testing.Platform marks nothing, since a test runner such as Stryker's uses it as a library. The rule reads only `.cs` files, so the Python files under `App.Tests/` are compared, as they are today.
+- A test project is found by its folder names, or by the nearest `.csproj` at or above the file: `<IsTestProject>true</IsTestProject>`, the `MSTest.Sdk` project SDK, or a PackageReference to Microsoft.NET.Test.Sdk, NUnit, xunit, xunit.v3, MSTest, or MSTest.TestFramework. A folder name that ends in `Test`, such as `App.UnitTest`, isn't a sign by itself: Stryker's production `Stryker.TestRunner.VsTest` ends that way. A reference to Microsoft.Testing.Platform marks nothing, since a test runner such as Stryker's uses it as a library. The rule reads only `.cs` files, so the Python files under `App.Tests/` are compared, as they are today.
 - `--changed` counts untracked files: it runs `git status --untracked-files=all`.
 - The text report shows two members that share a line range with the same `file:start-end`, so the members recipe puts each accessor on its own line.
