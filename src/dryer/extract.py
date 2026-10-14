@@ -27,6 +27,17 @@ _DEFINITION_PARENTS = {
     "public_field_definition",
     "property_definition",
 }
+# C# members, compared when they have a body.
+_CSHARP_MEMBERS = {
+    "method_declaration",
+    "constructor_declaration",
+    "destructor_declaration",
+    "operator_declaration",
+    "conversion_operator_declaration",
+    "accessor_declaration",
+    "property_declaration",
+    "indexer_declaration",
+}
 
 
 def _grammar(path: str) -> str:
@@ -133,12 +144,28 @@ def _rust_nodes(data: bytes, root) -> list:
     return found
 
 
+def _csharp_nodes(data: bytes, root) -> list:
+    """A property or indexer counts with its own `=>` body, otherwise by its
+    accessors. Local functions and lambdas stay in the member that holds them."""
+
+    found = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in _CSHARP_MEMBERS and _has(node, "block", "arrow_expression_clause"):
+            found.append(node)
+            continue
+        stack.extend(reversed(node.children))
+    return found
+
+
 _PICKERS = {
     "java": ("java", _java_nodes),
     "go": ("go", _go_nodes),
     "python": ("python", _python_nodes),
     "typescript": (_grammar, _typescript_nodes),
     "rust": ("rust", _rust_nodes),
+    "csharp": ("csharp", _csharp_nodes),
 }
 
 

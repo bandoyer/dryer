@@ -32,6 +32,7 @@ def test_language_detection():
     assert language_of("ui/view.tsx") == "typescript"
     assert language_of("src/lib.rs") == "rust"
     assert language_of("src/dryer/cli.py") == "python"
+    assert language_of("src/App/Board.cs") == "csharp"
     assert language_of("types.d.ts") is None
     assert language_of("notes.md") is None
 
@@ -43,6 +44,11 @@ def test_help_does_not_scan(capsys):
     assert "__pycache__" in out
     assert ".test.cts" in out
     assert "--threshold" in out
+    assert "C# files in a test project" in out
+    assert "IsTestProject" in out
+    assert "MSTest.Sdk" in out
+    assert "MSTest," in out
+    assert "bin/ and obj/" in out
 
 
 def test_unknown_format(capsys):
@@ -177,6 +183,162 @@ def test_names_that_are_tests():
     for name in names:
         assert is_test_file(name), name
     assert not is_test_file("src/app.py")
+
+
+_PLAIN_CSPROJ = '<Project Sdk="Microsoft.NET.Sdk" />'
+
+
+def test_a_csharp_test_project_is_found_by_its_folder_name(tmp_path):
+    tests = ["App.Tests", "App.UnitTests", "App.Test", "App.Test.Unit", "X.IntegrationTests", "Tests", "AppTests"]
+    plain = ["App", "App.UnitTest", "App.Testing", "Clock.Testing", "Contests", "Attest.Core", "Latest", "tested"]
+    for folder in tests + plain:
+        write_source(tmp_path, f"{folder}/{folder}.csproj", _PLAIN_CSPROJ)
+    for folder in tests:
+        assert is_test_file(tmp_path / folder / "Calc.cs"), folder
+        assert is_test_file(tmp_path / folder / "Models" / "Row.cs"), folder
+    for folder in plain:
+        assert not is_test_file(tmp_path / folder / "Calc.cs"), folder
+    assert not is_test_file(tmp_path / "App.Tests" / "a.py")
+
+
+def test_only_the_project_folder_name_counts(tmp_path):
+    """A folder inside the project, or above it, doesn't decide; a file with no project isn't tests."""
+
+    write_source(tmp_path, "Prod/Prod.csproj", _PLAIN_CSPROJ)
+    write_source(tmp_path, "Acme.Tests/repo/App/App.csproj", _PLAIN_CSPROJ)
+    assert not is_test_file(tmp_path / "Prod" / "Tests" / "Helper.cs")
+    assert not is_test_file(tmp_path / "Prod" / "App.Tests" / "Helper.cs")
+    assert not is_test_file(tmp_path / "Acme.Tests" / "repo" / "App" / "Calc.cs")
+    assert not is_test_file(tmp_path / "Lone.Tests" / "Calc.cs")
+
+
+def test_a_csharp_projects_build_output_is_left_out(tmp_path):
+    write_source(tmp_path, "App/App.csproj", _PLAIN_CSPROJ)
+    assert is_test_file(tmp_path / "App" / "obj" / "Debug" / "net10.0" / "Calc.g.cs")
+    assert is_test_file(tmp_path / "App" / "bin" / "Debug" / "Copy.cs")
+    assert not is_test_file(tmp_path / "App" / "Calc.cs")
+    assert not is_test_file(tmp_path / "App" / "Binders" / "Calc.cs")
+    assert not is_test_file(tmp_path / "App" / "obj" / "notes.py")
+
+
+_TEST_PROJECTS = {
+    "Marked": "<Project><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup></Project>",
+    "Sdk": '<Project><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" /></ItemGroup></Project>',
+    "Nunit": '<Project><ItemGroup><PackageReference Include="nunit" /></ItemGroup></Project>',
+    "Xunit": '<Project><ItemGroup><PackageReference Include="xunit" /></ItemGroup></Project>',
+    "XunitV3": '<Project><ItemGroup><PackageReference Include="xunit.v3" /></ItemGroup></Project>',
+    "Framework": '<Project><ItemGroup><PackageReference Include="MSTest.TestFramework" /></ItemGroup></Project>',
+    "Meta": '<Project><ItemGroup><PackageReference Include="MSTest" /></ItemGroup></Project>',
+    "MstestSdk": '<Project Sdk="MSTest.Sdk"><PropertyGroup /></Project>',
+    "MstestSdkVersion": '<Project Sdk="MSTest.Sdk/4.2.2"><PropertyGroup /></Project>',
+    "SdkElement": '<Project><Sdk Name="MSTest.Sdk" Version="4.2.2" /></Project>',
+    "SingleQuoted": "<Project><ItemGroup><PackageReference Include='xunit.v3' /></ItemGroup></Project>",
+    "Spaced": '<Project><ItemGroup><PackageReference Include = "NUnit" /></ItemGroup></Project>',
+    "Legacy": (
+        '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
+        "<PropertyGroup><IsTestProject>True</IsTestProject></PropertyGroup></Project>"
+    ),
+}
+
+_PLAIN_PROJECTS = {
+    "Plain": '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>',
+    "Unmarked": "<Project><PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup></Project>",
+    "Commented": '<Project><!-- <PackageReference Include="NUnit" /> --></Project>',
+    "Lookalike": '<Project><ItemGroup><PackageReference Include="NUnit.Analyzers" /></ItemGroup></Project>',
+    "Platform": '<Project><ItemGroup><PackageReference Include="Microsoft.Testing.Platform" /></ItemGroup></Project>',
+    "OtherSdk": '<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup /></Project>',
+    "Broken": "<Project><PropertyGroup>",
+}
+
+
+def test_a_csproj_can_mark_its_project_as_tests(tmp_path):
+    for name, text in {**_TEST_PROJECTS, **_PLAIN_PROJECTS}.items():
+        write_source(tmp_path, f"{name}/{name}.csproj", text)
+    write_source(tmp_path, "Marked/Inner/Inner.csproj", _PLAIN_PROJECTS["Plain"])
+    for name in _TEST_PROJECTS:
+        assert is_test_file(tmp_path / name / "Calc.cs"), name
+        assert is_test_file(tmp_path / name / "Models" / "Row.cs"), name
+    for name in _PLAIN_PROJECTS:
+        assert not is_test_file(tmp_path / name / "Calc.cs"), name
+    assert not is_test_file(tmp_path / "Marked" / "Inner" / "Calc.cs")
+
+
+def test_stryker_nets_test_runners_are_source_and_its_mstest_sdk_project_is_tests(tmp_path):
+    """Three projects from stryker-net 8ee14e5c, trimmed to the lines the rule reads."""
+
+    runner = "Stryker.TestRunner.MicrosoftTestPlatform"
+    write_source(
+        tmp_path,
+        f"src/{runner}/{runner}.csproj",
+        """\
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+      <ProjectReference Include="..\\Stryker.TestRunner\\Stryker.TestRunner.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="CliWrap" />
+      <PackageReference Include="StreamJsonRpc" />
+      <PackageReference Include="Microsoft.Testing.Platform" />
+    </ItemGroup>
+</Project>
+""",
+    )
+    write_source(
+        tmp_path,
+        f"src/{runner}.UnitTest/{runner}.UnitTest.csproj",
+        """\
+<Project Sdk="MSTest.Sdk/4.2.2">
+    <ItemGroup>
+        <PackageReference Include="Moq" />
+        <PackageReference Include="Shouldly" />
+    </ItemGroup>
+</Project>
+""",
+    )
+    vstest = "Stryker.TestRunner.VsTest"
+    write_source(
+        tmp_path,
+        f"src/{vstest}/{vstest}.csproj",
+        """\
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+      <PackageReference Include="Microsoft.TestPlatform" />
+      <PackageReference Include="Microsoft.TestPlatform.ObjectModel" />
+    </ItemGroup>
+</Project>
+""",
+    )
+    assert not is_test_file(tmp_path / "src" / runner / "MicrosoftTestPlatformRunner.cs")
+    assert not is_test_file(tmp_path / "src" / vstest / "VsTestRunner.cs")
+    assert is_test_file(tmp_path / "src" / f"{runner}.UnitTest" / "RunnerTests.cs")
+
+
+def test_csharp_test_projects_are_left_out_of_a_walk_and_changed_files(tmp_path):
+    for folder in ["src/App", "App.Tests", "App.Test.Unit", "Checks"]:
+        write_source(tmp_path, f"{folder}/Calc.cs", "class Calc { }\n")
+    write_source(tmp_path, "App.Tests/App.Tests.csproj", _PLAIN_CSPROJ)
+    write_source(tmp_path, "App.Test.Unit/App.Test.Unit.csproj", _PLAIN_CSPROJ)
+    write_source(tmp_path, "Checks/Checks.csproj", _TEST_PROJECTS["Marked"])
+    write_source(tmp_path, "App.Tests/a.py", "x = 1\n")
+    relative = [path.relative_to(tmp_path).as_posix() for path in iter_source_files([tmp_path])]
+    assert sorted(relative) == ["App.Tests/a.py", "src/App/Calc.cs"]
+    assert _tracked_source(tmp_path / "src" / "App" / "Calc.cs") is True
+    assert _tracked_source(tmp_path / "App.Tests" / "Calc.cs") is False
+    assert _tracked_source(tmp_path / "Checks" / "Calc.cs") is False
+
+
+def test_a_named_csharp_test_file_is_compared(tmp_path, capsys):
+    body = "class Calc\n{\n    int Sum(int[] xs)\n    {\n        return Scale(Total(xs), 2);\n    }\n}\n"
+    write_source(tmp_path, "src/App/Calc.cs", body)
+    write_source(tmp_path, "App.Tests/Calc.cs", body)
+    write_source(tmp_path, "App.Tests/App.Tests.csproj", _PLAIN_CSPROJ)
+    args = ["--root", str(tmp_path), "--min-lines", "1", "--min-nodes", "1"]
+    assert run([*args, "App.Tests/Calc.cs", "src/App/Calc.cs"]) == 0
+    out = capsys.readouterr().out
+    assert "App.Tests/Calc.cs:3-6" in out
+    assert "src/App/Calc.cs:3-6" in out
+    assert run(args) == 0
+    assert capsys.readouterr().out == "No duplicate candidates found.\n"
 
 
 def _init_repo(path: Path) -> None:

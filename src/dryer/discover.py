@@ -2,10 +2,19 @@
 
 The extensions and the skipped directories match crapper and mutator, with
 `.cljd` added because dry4clj reads it.
+
+A `.cs` file in a C# test project, or in its project's `bin/` or `obj/`, is left
+out by the rule crapper and skillflow's measure use too (bandoyer/skillflow#270
+and #271). The file's project is the nearest folder at or above it that holds a
+`.csproj`. It is a test project when its folder's name ends in `Tests` or has a
+dot-separated part `Test` or `Tests`, or when a `.csproj` there marks itself a
+test project. A file with no project isn't in one. Change the three together.
 """
 
 import os
+from functools import lru_cache
 from pathlib import Path
+from xml.etree import ElementTree
 
 EXTENSIONS = {
     ".clj": "clojure",
@@ -21,6 +30,7 @@ EXTENSIONS = {
     ".cts": "typescript",
     ".rs": "rust",
     ".py": "python",
+    ".cs": "csharp",
 }
 
 SKIP_DIRS = {
@@ -45,6 +55,18 @@ SKIP_DIRS = {
 
 TEST_DIRS = {"test", "tests", "spec", "specs", "__tests__"}
 
+# A PackageReference to one of these marks a C# test project. NuGet ids ignore case.
+# Microsoft.Testing.Platform isn't one: a test runner references it as a library.
+_CSHARP_TEST_PACKAGES = {
+    "microsoft.net.test.sdk",
+    "nunit",
+    "xunit",
+    "xunit.v3",
+    "mstest",
+    "mstest.testframework",
+}
+_CSHARP_BUILD_DIRS = {"bin", "obj"}
+
 
 def language_of(path: str | Path) -> str | None:
     file_path = Path(path)
@@ -54,9 +76,70 @@ def language_of(path: str | Path) -> str | None:
     return EXTENSIONS.get(file_path.suffix)
 
 
+def _csharp_test_name(name: str) -> bool:
+    """A name ending in Test isn't enough: Stryker.TestRunner.VsTest is production code."""
+
+    return name.endswith("Tests") or not {"Test", "Tests"}.isdisjoint(name.split("."))
+
+
+def _mstest_sdk(sdks: str) -> bool:
+    """`MSTest.Sdk` among `;`-separated SDKs, with or without a `/version`."""
+
+    return any(sdk.split("/")[0].strip().lower() == "mstest.sdk" for sdk in sdks.split(";"))
+
+
+def _marks_a_test_project(project: Path) -> bool:
+    """Read as XML by local names, as crapper reads it, so a comment marks nothing
+    and quoting doesn't matter. A file that isn't XML marks nothing."""
+
+    try:
+        root = ElementTree.parse(project).getroot()
+    except (OSError, ElementTree.ParseError):
+        return False
+    for element in root.iter():
+        tag = element.tag.rpartition("}")[2]
+        if tag == "IsTestProject" and (element.text or "").strip().lower() == "true":
+            return True
+        package = element.get("Include", "").strip().lower()
+        if tag == "PackageReference" and package in _CSHARP_TEST_PACKAGES:
+            return True
+        if tag == "Project" and _mstest_sdk(element.get("Sdk", "")):
+            return True
+        if tag == "Sdk" and _mstest_sdk(element.get("Name", "")):
+            return True
+    return False
+
+
+@lru_cache(maxsize=None)
+def _csharp_project(folder: Path) -> Path | None:
+    for current in (folder, *folder.parents):
+        if any(current.glob("*.csproj")):
+            return current
+    return None
+
+
+@lru_cache(maxsize=None)
+def _csharp_test_project(project: Path) -> bool:
+    if _csharp_test_name(project.name):
+        return True
+    return any(_marks_a_test_project(csproj) for csproj in project.glob("*.csproj"))
+
+
+def _csharp_left_out(file_path: Path) -> bool:
+    folder = file_path.absolute().parent
+    project = _csharp_project(folder)
+    if project is None:
+        return False
+    if not _CSHARP_BUILD_DIRS.isdisjoint(folder.relative_to(project).parts):
+        return True
+    return _csharp_test_project(project)
+
+
 def is_test_file(path: str | Path) -> bool:
     file_path = Path(path)
     name = file_path.name
+    if file_path.suffix == ".cs" and _csharp_left_out(file_path):
+        return True
     if name.endswith("_test.go"):
         return True
     if name.endswith(("_test.clj", "_test.cljc", "_test.cljs", "_test.cljd", "_test.bb")):
