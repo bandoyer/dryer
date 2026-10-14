@@ -3,11 +3,11 @@
 The extensions and the skipped directories match crapper and mutator, with
 `.cljd` added because dry4clj reads it.
 
-A C# test project is found by the rule skillflow's measure uses
-(bandoyer/skillflow#270): a folder whose name ends in `Tests` or has a
-dot-separated part `Test` or `Tests`, or a `.csproj` that marks itself a test
-project. The nearest folder at or above a `.cs` file that holds a `.csproj`
-decides the second.
+A C# test project is found by the rule crapper and skillflow's measure use
+too (bandoyer/skillflow#270 and #271): a folder whose name ends in `Test` or
+`Tests` or has a dot-separated part `Test` or `Tests`, or a `.csproj` that marks
+itself a test project. The nearest folder at or above a `.cs` file that holds a
+`.csproj` decides the second. Change the three together.
 """
 
 import os
@@ -55,12 +55,13 @@ SKIP_DIRS = {
 TEST_DIRS = {"test", "tests", "spec", "specs", "__tests__"}
 
 # A PackageReference to one of these marks a C# test project. NuGet ids ignore case.
+# Microsoft.Testing.Platform isn't one: a test runner references it as a library.
 _CSHARP_TEST_PACKAGES = {
     "microsoft.net.test.sdk",
     "nunit",
     "xunit",
-    "mstest",
-    "microsoft.testing.platform",
+    "xunit.v3",
+    "mstest.testframework",
 }
 
 
@@ -73,7 +74,14 @@ def language_of(path: str | Path) -> str | None:
 
 
 def _csharp_test_folder(name: str) -> bool:
-    return name.endswith("Tests") or not {"Test", "Tests"}.isdisjoint(name.split("."))
+    return name.endswith(("Test", "Tests")) or not {"Test", "Tests"}.isdisjoint(name.split("."))
+
+
+def _mstest_sdk(root) -> bool:
+    """`<Project Sdk="MSTest.Sdk">`, with or without a `/version`."""
+
+    sdks = root.get("Sdk", "").split(";")
+    return any(sdk.split("/")[0].strip().lower() == "mstest.sdk" for sdk in sdks)
 
 
 def _marks_a_test_project(project: Path) -> bool:
@@ -81,6 +89,8 @@ def _marks_a_test_project(project: Path) -> bool:
         root = ElementTree.parse(project).getroot()
     except (OSError, ElementTree.ParseError):
         return False
+    if _mstest_sdk(root):
+        return True
     for element in root.iter():
         tag = element.tag.rpartition("}")[2]
         if tag == "IsTestProject" and (element.text or "").strip().lower() == "true":

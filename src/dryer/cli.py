@@ -59,9 +59,9 @@ With no paths, source files under the project root are compared. Directories
 named {_skipped_directory_text()} are skipped, as are *_test.go, *.test.cts,
 *.spec.cts, *.spec.ts, test_*.py, and *_test.py files.
 C# files in a test project are skipped too: under a folder whose name ends in
-Tests or has a dot-separated part Test or Tests, or in a project whose .csproj
-sets IsTestProject or references Microsoft.NET.Test.Sdk, NUnit, xunit, MSTest,
-or Microsoft.Testing.Platform.
+Test or Tests or has a dot-separated part Test or Tests, or in a project whose
+.csproj sets IsTestProject, uses the MSTest.Sdk project SDK, or references
+Microsoft.NET.Test.Sdk, NUnit, xunit, xunit.v3, or MSTest.TestFramework.
 
 Clojure compares every top-level form except ns. The other languages compare
 functions and methods. A form is only compared with forms in the same language.

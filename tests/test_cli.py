@@ -46,6 +46,7 @@ def test_help_does_not_scan(capsys):
     assert "--threshold" in out
     assert "C# files in a test project" in out
     assert "IsTestProject" in out
+    assert "MSTest.Sdk" in out
 
 
 def test_unknown_format(capsys):
@@ -183,9 +184,20 @@ def test_names_that_are_tests():
 
 
 def test_a_csharp_test_project_is_found_by_its_folder_name(tmp_path):
-    for folder in ["App.Tests", "App.UnitTests", "App.Test", "App.Test.Unit", "Tests", "AppTests", "App.Tests/Models"]:
+    folders = [
+        "App.Tests",
+        "App.UnitTests",
+        "App.Test",
+        "App.Test.Unit",
+        "App.UnitTest",
+        "X.IntegrationTests",
+        "Tests",
+        "AppTests",
+        "App.Tests/Models",
+    ]
+    for folder in folders:
         assert is_test_file(tmp_path / folder / "Calc.cs"), folder
-    for folder in ["App", "App.Testing", "Contests", "Attest.Core", "Latest", "tested"]:
+    for folder in ["App", "App.Testing", "Clock.Testing", "Contests", "Contest", "Attest.Core", "Latest", "tested"]:
         assert not is_test_file(tmp_path / folder / "Calc.cs"), folder
     assert not is_test_file(tmp_path / "App.Tests" / "a.py")
 
@@ -195,8 +207,10 @@ _TEST_PROJECTS = {
     "Sdk": '<Project><ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" /></ItemGroup></Project>',
     "Nunit": '<Project><ItemGroup><PackageReference Include="nunit" /></ItemGroup></Project>',
     "Xunit": '<Project><ItemGroup><PackageReference Include="xunit" /></ItemGroup></Project>',
-    "Mstest": '<Project><ItemGroup><PackageReference Include="MSTest" /></ItemGroup></Project>',
-    "Mtp": '<Project><ItemGroup><PackageReference Include="Microsoft.Testing.Platform" /></ItemGroup></Project>',
+    "XunitV3": '<Project><ItemGroup><PackageReference Include="xunit.v3" /></ItemGroup></Project>',
+    "Framework": '<Project><ItemGroup><PackageReference Include="MSTest.TestFramework" /></ItemGroup></Project>',
+    "MstestSdk": '<Project Sdk="MSTest.Sdk"><PropertyGroup /></Project>',
+    "MstestSdkVersion": '<Project Sdk="MSTest.Sdk/4.2.2"><PropertyGroup /></Project>',
     "Legacy": (
         '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
         "<PropertyGroup><IsTestProject>True</IsTestProject></PropertyGroup></Project>"
@@ -208,6 +222,8 @@ _PLAIN_PROJECTS = {
     "Unmarked": "<Project><PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup></Project>",
     "Commented": '<Project><!-- <PackageReference Include="NUnit" /> --></Project>',
     "Lookalike": '<Project><ItemGroup><PackageReference Include="NUnit.Analyzers" /></ItemGroup></Project>',
+    "Platform": '<Project><ItemGroup><PackageReference Include="Microsoft.Testing.Platform" /></ItemGroup></Project>',
+    "OtherSdk": '<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup /></Project>',
     "Broken": "<Project><PropertyGroup>",
 }
 
@@ -222,6 +238,42 @@ def test_a_csproj_can_mark_its_project_as_tests(tmp_path):
     for name in _PLAIN_PROJECTS:
         assert not is_test_file(tmp_path / name / "Calc.cs"), name
     assert not is_test_file(tmp_path / "Marked" / "Inner" / "Calc.cs")
+
+
+def test_stryker_nets_test_runner_is_source_and_its_mstest_sdk_project_is_tests(tmp_path):
+    """Two projects from stryker-net 8ee14e5c, trimmed to the lines the rule reads."""
+
+    runner = "Stryker.TestRunner.MicrosoftTestPlatform"
+    write_source(
+        tmp_path,
+        f"src/{runner}/{runner}.csproj",
+        """\
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+      <ProjectReference Include="..\\Stryker.TestRunner\\Stryker.TestRunner.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="CliWrap" />
+      <PackageReference Include="StreamJsonRpc" />
+      <PackageReference Include="Microsoft.Testing.Platform" />
+    </ItemGroup>
+</Project>
+""",
+    )
+    write_source(
+        tmp_path,
+        f"src/{runner}.UnitTest/{runner}.UnitTest.csproj",
+        """\
+<Project Sdk="MSTest.Sdk/4.2.2">
+    <ItemGroup>
+        <PackageReference Include="Moq" />
+        <PackageReference Include="Shouldly" />
+    </ItemGroup>
+</Project>
+""",
+    )
+    assert not is_test_file(tmp_path / "src" / runner / "MicrosoftTestPlatformRunner.cs")
+    assert is_test_file(tmp_path / "src" / f"{runner}.UnitTest" / "RunnerTests.cs")
 
 
 def test_csharp_test_projects_are_left_out_of_a_walk_and_changed_files(tmp_path):
