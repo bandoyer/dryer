@@ -36,9 +36,9 @@ Preconditions:
   $vd drive "$project" "$T" --edn --threshold 0 --min-lines 1 --min-nodes 1 lone.rs
   ```
 
-  Pass: the first drive reports exactly one pair, `:score 1.0`, with `pair.rs` lines 1-1 on both sides; the second reports `{:candidates []}`. The same holds for `.ts` (`function a() { return 1 + 2; } function b() { return 3 + 4; }`) and `.go` (`package p` on line 1, then `func a() int { return 1 + 2 }; func b() int { return 3 + 4 }`).
+  Pass: the first drive reports exactly one pair, `:score 1.0`, with `pair.rs` lines 1-1 on both sides; the second reports `{:candidates []}`. The same holds for `.ts` (`function a() { return 1 + 2; } function b() { return 3 + 4; }`), and for `.go` (`package p` on line 1, then `func a() int { return 1 + 2 }; func b() int { return 3 + 4 }`), whose pair is on lines 2-2.
 - **find-empty.** Use `project=$($vd project empty)`. Put an old report in place with `printf '{:candidates [{:score 1.0}]}\n' | $vd put "$project" .metrics/dry.edn`, then run `$vd drive "$project" "$T"`. Put the old report back, add `printf 'def a(xs):\n    return xs\n' | $vd put "$project" src/app.py`, and run `$vd drive "$project" "$T" no-such-path`. Pass, for both: exit `0`, stdout is `No source files to analyze.`, and the transcript shows `.metrics/dry.edn` rewritten as `{:candidates []}`. A failed run keeps the old report: run `rm -rf "$project/.git"`, put the old report back, and run `$vd drive "$project" "$T" --changed`. Pass: exit `128`, `not a git repository` on stderr, and the hash unchanged.
-- **find-metrics.** In any drive above, the transcript's `.metrics/dry.edn` line shows a new hash and the file's content matches the pairs reported. Tracked files changed: `(none)`.
+- **find-metrics.** In each successful drive above whose pairs differ from the run before it, the transcript's `.metrics/dry.edn` line shows a new hash and the file's content matches the pairs reported. A drive that reports the same pairs, such as find-edn after find-text, keeps the hash. Tracked files changed: `(none)`.
 
 ## Gotchas
 

@@ -129,6 +129,6 @@ Then run `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1 sr
 
 ## Gotchas
 
-- dryer reads the crate roots (`src/lib.rs`, `src/main.rs`, `src/bin/...`) and the module files between a root and a file from disk, even when the run names only that file. A file with no `Cargo.toml` above it, or one no module declares, is compared as before.
+- dryer reads the crate roots (`src/lib.rs`, `src/main.rs`, `src/bin/...`) and the module files between a root and a file from disk, even when the run names only that file. A file with no `Cargo.toml` that has `[package]` above it, or one no module declares, is compared as before.
 - A bare `mod tests;` is test code by its name, as an inline `mod tests { }` is, although rustc compiles that file in a normal build.
 - The rule is crapper's (`crapper --no-coverage` leaves the same functions out). Functions inside `proptest! { }` or `quickcheck! { }` are never compared: tree-sitter reads a macro body as tokens.

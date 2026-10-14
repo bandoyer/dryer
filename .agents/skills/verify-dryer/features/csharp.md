@@ -5,9 +5,9 @@ dryer reads `.cs` files as C#, and compares methods and the other members that h
 ## Sub-features
 
 - `csharp-pair` two C# methods that differ only in local names, the members they read, and literal values pair at `1.00`, with `:language "csharp"`; an unrelated method beside them pairs with neither.
-- `csharp-callee` a different called method, conditional-access member, generic method, constructed type, or call inside an object initializer scores below `1.00`.
+- `csharp-callee` a different called method, conditional-access member, generic method, constructed type (`global::` names included), or call inside an object initializer scores below `1.00`. A comment between a callee and its arguments drops out.
 - `csharp-members` methods, constructors, destructors, operators, conversion operators, accessors with a body, and `=>` properties and indexers are compared. Bodiless members, local functions, and lambdas are not.
-- `csharp-test-projects` a `.cs` file in a C# test project, or in a C# project's `bin/` or `obj/`, is left out of a directory walk and `--changed`, and compared when named. A file's project is the nearest folder holding a `.csproj`, and only that folder's name counts.
+- `csharp-test-projects` a `.cs` file in a C# test project, or in a C# project's `bin/` or `obj/`, is left out of a directory walk and `--changed`, and compared when the file is named. A file's project is the nearest folder holding a `.csproj`, and only that folder's name counts.
 
 ## How to get to it (user POV)
 
@@ -86,10 +86,14 @@ new List<int>()|new HashSet<int>()
 new System.Text.StringBuilder()|new System.IO.StringWriter()
 new Foo { A = 1 }|new Bar { A = 1 }
 new Foo(x) { A = Compute(x) }|new Foo(x) { A = Other(x) }
+new global::Foo()|new global::Bar()
 EOF
+printf 'class C\n{\n    object M(object x)\n    {\n        return Foo /* c */ (x);\n    }\n}\n' | $vd put "$project" src/Comment.cs
+printf 'class D\n{\n    object M(object x)\n    {\n        return Foo(x);\n    }\n}\n' | $vd put "$project" src/Plain.cs
+$vd drive "$project" "$T" --edn --threshold 0 --min-lines 1 --min-nodes 1 src/Comment.cs src/Plain.cs
 ```
 
-Pass: each drive exits `0` with one candidate. The first, the control with renamed locals, has `:score 1.0`. Every other one has `:score` below `1.0`.
+Pass: each loop drive exits `0` with one candidate. The first, the control with renamed locals, has `:score 1.0`. Every other one has `:score` below `1.0`, `global::` names included. The last drive, a comment between the callee and its arguments against the plain call, exits `0` with `:score 1.0` and no `Traceback` on stderr.
 
 **csharp-members.** Put this file, then run `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1 src/Board.cs`.
 
@@ -153,7 +157,7 @@ EOF
 
 Pass: exit `0`; the spans start on exactly these 15 lines: 5 (constructor), 9 (destructor), 15 (`Alpha`), 21 (`Beta`), 23 (`Count`), 26 (`get`), 27 (`set`), 29 (indexer), 30 (operator), 31 (conversion operator), 34 (`add`), 35 (`remove`), 42 (`Twice`), 47 (`Sum`), and 52 (`Value`). That is 105 `DUPLICATE` blocks. No span starts on line 13 (abstract), 14 (bodiless partial), 17 (local function), 18 (lambda), 22 (auto-property), or 41 (bodiless interface method).
 
-**csharp-test-projects.** Put one method in fifteen places, fourteen project files, and two Python files:
+**csharp-test-projects.** Put one method in seventeen places, fourteen project files, and two Python files:
 
 ```bash
 calc='class Calc
@@ -170,6 +174,9 @@ for dir in src/App src/Lib Runner.MicrosoftTestPlatform App.Tests App.UnitTests 
 done
 printf '%s\n' "$calc" | $vd put "$project" Prod/Tests/Helper.cs
 printf '%s\n' "$calc" | $vd put "$project" src/App/obj/Debug/net10.0/Calc.g.cs
+printf '%s\n' "$calc" | $vd put "$project" src/Lib/bin/Debug/Copy.cs
+printf '%s\n' "$calc" | $vd put "$project" Bench/Calc.cs
+printf '<Project>\n  <Sdk Name="MSTest.Sdk" />\n</Project>\n' | $vd put "$project" Bench/Bench.csproj
 for proj in src/App/App Prod/Prod App.Tests/App.Tests App.UnitTests/App.UnitTests App.Test/App.Test App.Test.Unit/App.Test.Unit; do
   printf '<Project Sdk="Microsoft.NET.Sdk" />\n' | $vd put "$project" "$proj.csproj"
 done
@@ -186,7 +193,7 @@ printf 'def b(ys):\n    return f(ys) + 2\n' | $vd put "$project" App.Tests/b.py
 
 Then drive these four, with the files left untracked:
 
-1. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1`. Pass: exit `0`; seven `DUPLICATE` blocks. Six pair `src/App/Calc.cs`, `src/Lib/Calc.cs`, `Prod/Tests/Helper.cs` and `Runner.MicrosoftTestPlatform/Calc.cs` with one another, and one names `App.Tests/a.py` and `App.Tests/b.py`. No block names another file, `src/App/obj/Debug/net10.0/Calc.g.cs` included.
+1. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1`. Pass: exit `0`; seven `DUPLICATE` blocks. Six pair `src/App/Calc.cs`, `src/Lib/Calc.cs`, `Prod/Tests/Helper.cs` and `Runner.MicrosoftTestPlatform/Calc.cs` with one another, and one names `App.Tests/a.py` and `App.Tests/b.py`. No block names another file: not `src/App/obj/Debug/net10.0/Calc.g.cs`, not `src/Lib/bin/Debug/Copy.cs`, and not `Bench/Calc.cs`, whose project names `MSTest.Sdk` in an `<Sdk>` element.
 2. `$vd drive "$project" "$T" --changed --threshold 0 --min-lines 1 --min-nodes 1`. Pass: the same seven blocks.
 3. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1 App.Tests/Calc.cs src/App/Calc.cs`. Pass: one block, naming both files.
 4. `$vd drive "$project" "$T" --help`. Pass: the help says C# files in a test project, and in a C# project's `bin/` and `obj/`, are skipped, and names the folder signs and the `.csproj` signs.

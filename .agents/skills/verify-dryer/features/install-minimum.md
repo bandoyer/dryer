@@ -43,6 +43,6 @@ Preconditions:
 ## Gotchas
 
 - This recipe runs dryer through `exec`, not `drive`. `drive` runs `./dryer`, which always uses the checkout's `.venv` with current dependencies, so it can't test the floors.
-- `-r pyproject.toml` installs only the dependencies, and `PYTHONPATH` runs this checkout's `src`, so nothing is written inside the checkout.
+- `-r pyproject.toml` installs only the dependencies, and `PYTHONPATH` runs this checkout's `src`. Python writes its `__pycache__` under `src/`, which git ignores, and nothing else is written inside the checkout.
 - The C# grammar needs `tree-sitter` 0.25 or later. With 0.24 it fails to load: `Incompatible Language version 15. Must be between 13 and 14`.
 - The language pack downloads each grammar on first parse and caches it per pack version under `~/.cache/tree-sitter-language-pack/v<version>`.

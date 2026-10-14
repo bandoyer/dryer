@@ -42,6 +42,6 @@ $vd drive "$project" "$T" --edn --threshold 0 --min-lines 1 --min-nodes 1 pair.r
 ## Gotchas
 
 - With `--threshold 0` every pair is printed, so `:score` is always there to read. At the default `0.82` a low pair is simply missing.
-- Use `.py`, `.ts`, `.rs`, or `.go` so dryer picks the language. TypeScript bodies need `function f(x, y) { ... }`, Python bodies need `def f(x, y):` with the body indented.
-- The transcript shows each `:score` twice: once in stdout and once in the `.metrics/dry.edn` content. Read the stdout one.
+- Use a suffix dryer reads, such as `.py`, `.ts`, `.rs`, `.go`, `.java`, or `.cs`, so dryer picks the language; `./dryer --help` lists them all. C# pairs are in [csharp.md](./csharp.md). TypeScript bodies need `function f(x, y) { ... }`, Python bodies need `def f(x, y):` with the body indented.
+- When a drive changed the report, the transcript shows each `:score` twice: once in stdout and once in the `.metrics/dry.edn` content. Read the stdout one.
 - A score below `1.0` can still be high: one changed token among many shared ones. Compare against `1.0`, not against a guess.
