@@ -48,6 +48,7 @@ def test_help_does_not_scan(capsys):
     assert "IsTestProject" in out
     assert "MSTest.Sdk" in out
     assert "MSTest," in out
+    assert "bin/ and obj/" in out
 
 
 def test_unknown_format(capsys):
@@ -184,22 +185,40 @@ def test_names_that_are_tests():
     assert not is_test_file("src/app.py")
 
 
+_PLAIN_CSPROJ = '<Project Sdk="Microsoft.NET.Sdk" />'
+
+
 def test_a_csharp_test_project_is_found_by_its_folder_name(tmp_path):
-    folders = [
-        "App.Tests",
-        "App.UnitTests",
-        "App.Test",
-        "App.Test.Unit",
-        "X.IntegrationTests",
-        "Tests",
-        "AppTests",
-        "App.Tests/Models",
-    ]
-    for folder in folders:
+    tests = ["App.Tests", "App.UnitTests", "App.Test", "App.Test.Unit", "X.IntegrationTests", "Tests", "AppTests"]
+    plain = ["App", "App.UnitTest", "App.Testing", "Clock.Testing", "Contests", "Attest.Core", "Latest", "tested"]
+    for folder in tests + plain:
+        write_source(tmp_path, f"{folder}/{folder}.csproj", _PLAIN_CSPROJ)
+    for folder in tests:
         assert is_test_file(tmp_path / folder / "Calc.cs"), folder
-    for folder in ["App", "App.UnitTest", "App.Testing", "Clock.Testing", "Contests", "Attest.Core", "Latest", "tested"]:
+        assert is_test_file(tmp_path / folder / "Models" / "Row.cs"), folder
+    for folder in plain:
         assert not is_test_file(tmp_path / folder / "Calc.cs"), folder
     assert not is_test_file(tmp_path / "App.Tests" / "a.py")
+
+
+def test_only_the_project_folder_name_counts(tmp_path):
+    """A folder inside the project, or above it, doesn't decide; a file with no project isn't tests."""
+
+    write_source(tmp_path, "Prod/Prod.csproj", _PLAIN_CSPROJ)
+    write_source(tmp_path, "Acme.Tests/repo/App/App.csproj", _PLAIN_CSPROJ)
+    assert not is_test_file(tmp_path / "Prod" / "Tests" / "Helper.cs")
+    assert not is_test_file(tmp_path / "Prod" / "App.Tests" / "Helper.cs")
+    assert not is_test_file(tmp_path / "Acme.Tests" / "repo" / "App" / "Calc.cs")
+    assert not is_test_file(tmp_path / "Lone.Tests" / "Calc.cs")
+
+
+def test_a_csharp_projects_build_output_is_left_out(tmp_path):
+    write_source(tmp_path, "App/App.csproj", _PLAIN_CSPROJ)
+    assert is_test_file(tmp_path / "App" / "obj" / "Debug" / "net10.0" / "Calc.g.cs")
+    assert is_test_file(tmp_path / "App" / "bin" / "Debug" / "Copy.cs")
+    assert not is_test_file(tmp_path / "App" / "Calc.cs")
+    assert not is_test_file(tmp_path / "App" / "Binders" / "Calc.cs")
+    assert not is_test_file(tmp_path / "App" / "obj" / "notes.py")
 
 
 _TEST_PROJECTS = {
@@ -297,6 +316,8 @@ def test_stryker_nets_test_runners_are_source_and_its_mstest_sdk_project_is_test
 def test_csharp_test_projects_are_left_out_of_a_walk_and_changed_files(tmp_path):
     for folder in ["src/App", "App.Tests", "App.Test.Unit", "Checks"]:
         write_source(tmp_path, f"{folder}/Calc.cs", "class Calc { }\n")
+    write_source(tmp_path, "App.Tests/App.Tests.csproj", _PLAIN_CSPROJ)
+    write_source(tmp_path, "App.Test.Unit/App.Test.Unit.csproj", _PLAIN_CSPROJ)
     write_source(tmp_path, "Checks/Checks.csproj", _TEST_PROJECTS["Marked"])
     write_source(tmp_path, "App.Tests/a.py", "x = 1\n")
     relative = [path.relative_to(tmp_path).as_posix() for path in iter_source_files([tmp_path])]
@@ -310,6 +331,7 @@ def test_a_named_csharp_test_file_is_compared(tmp_path, capsys):
     body = "class Calc\n{\n    int Sum(int[] xs)\n    {\n        return Scale(Total(xs), 2);\n    }\n}\n"
     write_source(tmp_path, "src/App/Calc.cs", body)
     write_source(tmp_path, "App.Tests/Calc.cs", body)
+    write_source(tmp_path, "App.Tests/App.Tests.csproj", _PLAIN_CSPROJ)
     args = ["--root", str(tmp_path), "--min-lines", "1", "--min-nodes", "1"]
     assert run([*args, "App.Tests/Calc.cs", "src/App/Calc.cs"]) == 0
     out = capsys.readouterr().out

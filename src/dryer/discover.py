@@ -3,11 +3,12 @@
 The extensions and the skipped directories match crapper and mutator, with
 `.cljd` added because dry4clj reads it.
 
-A C# test project is found by the rule crapper and skillflow's measure use
-too (bandoyer/skillflow#270 and #271): a folder whose name ends in `Tests` or
-has a dot-separated part `Test` or `Tests`, or a `.csproj` that marks itself a
-test project. The nearest folder at or above a `.cs` file that holds a
-`.csproj` decides the second. Change the three together.
+A `.cs` file in a C# test project, or in its project's `bin/` or `obj/`, is left
+out by the rule crapper and skillflow's measure use too (bandoyer/skillflow#270
+and #271). The file's project is the nearest folder at or above it that holds a
+`.csproj`. It is a test project when its folder's name ends in `Tests` or has a
+dot-separated part `Test` or `Tests`, or when a `.csproj` there marks itself a
+test project. A file with no project isn't in one. Change the three together.
 """
 
 import os
@@ -64,6 +65,7 @@ _CSHARP_TEST_PACKAGES = {
     "mstest",
     "mstest.testframework",
 }
+_CSHARP_BUILD_DIRS = {"bin", "obj"}
 
 
 def language_of(path: str | Path) -> str | None:
@@ -74,7 +76,9 @@ def language_of(path: str | Path) -> str | None:
     return EXTENSIONS.get(file_path.suffix)
 
 
-def _csharp_test_folder(name: str) -> bool:
+def _csharp_test_name(name: str) -> bool:
+    """A name ending in Test isn't enough: Stryker.TestRunner.VsTest is production code."""
+
     return name.endswith("Tests") or not {"Test", "Tests"}.isdisjoint(name.split("."))
 
 
@@ -107,24 +111,34 @@ def _marks_a_test_project(project: Path) -> bool:
 
 
 @lru_cache(maxsize=None)
-def _in_marked_test_project(folder: Path) -> bool:
+def _csharp_project(folder: Path) -> Path | None:
     for current in (folder, *folder.parents):
-        projects = sorted(current.glob("*.csproj"))
-        if projects:
-            return any(_marks_a_test_project(project) for project in projects)
-    return False
+        if any(current.glob("*.csproj")):
+            return current
+    return None
 
 
-def _csharp_test_file(file_path: Path) -> bool:
-    if any(_csharp_test_folder(name) for name in file_path.parent.parts):
+@lru_cache(maxsize=None)
+def _csharp_test_project(project: Path) -> bool:
+    if _csharp_test_name(project.name):
         return True
-    return _in_marked_test_project(file_path.resolve().parent)
+    return any(_marks_a_test_project(csproj) for csproj in project.glob("*.csproj"))
+
+
+def _csharp_left_out(file_path: Path) -> bool:
+    folder = file_path.absolute().parent
+    project = _csharp_project(folder)
+    if project is None:
+        return False
+    if not _CSHARP_BUILD_DIRS.isdisjoint(folder.relative_to(project).parts):
+        return True
+    return _csharp_test_project(project)
 
 
 def is_test_file(path: str | Path) -> bool:
     file_path = Path(path)
     name = file_path.name
-    if file_path.suffix == ".cs" and _csharp_test_file(file_path):
+    if file_path.suffix == ".cs" and _csharp_left_out(file_path):
         return True
     if name.endswith("_test.go"):
         return True
