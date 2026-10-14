@@ -78,26 +78,30 @@ def _csharp_test_folder(name: str) -> bool:
     return name.endswith("Tests") or not {"Test", "Tests"}.isdisjoint(name.split("."))
 
 
-def _mstest_sdk(root) -> bool:
-    """`<Project Sdk="MSTest.Sdk">`, with or without a `/version`."""
+def _mstest_sdk(sdks: str) -> bool:
+    """`MSTest.Sdk` among `;`-separated SDKs, with or without a `/version`."""
 
-    sdks = root.get("Sdk", "").split(";")
-    return any(sdk.split("/")[0].strip().lower() == "mstest.sdk" for sdk in sdks)
+    return any(sdk.split("/")[0].strip().lower() == "mstest.sdk" for sdk in sdks.split(";"))
 
 
 def _marks_a_test_project(project: Path) -> bool:
+    """Read as XML by local names, as crapper reads it, so a comment marks nothing
+    and quoting doesn't matter. A file that isn't XML marks nothing."""
+
     try:
         root = ElementTree.parse(project).getroot()
     except (OSError, ElementTree.ParseError):
         return False
-    if _mstest_sdk(root):
-        return True
     for element in root.iter():
         tag = element.tag.rpartition("}")[2]
         if tag == "IsTestProject" and (element.text or "").strip().lower() == "true":
             return True
         package = element.get("Include", "").strip().lower()
         if tag == "PackageReference" and package in _CSHARP_TEST_PACKAGES:
+            return True
+        if tag == "Project" and _mstest_sdk(element.get("Sdk", "")):
+            return True
+        if tag == "Sdk" and _mstest_sdk(element.get("Name", "")):
             return True
     return False
 

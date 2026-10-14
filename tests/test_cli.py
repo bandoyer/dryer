@@ -212,6 +212,9 @@ _TEST_PROJECTS = {
     "Meta": '<Project><ItemGroup><PackageReference Include="MSTest" /></ItemGroup></Project>',
     "MstestSdk": '<Project Sdk="MSTest.Sdk"><PropertyGroup /></Project>',
     "MstestSdkVersion": '<Project Sdk="MSTest.Sdk/4.2.2"><PropertyGroup /></Project>',
+    "SdkElement": '<Project><Sdk Name="MSTest.Sdk" Version="4.2.2" /></Project>',
+    "SingleQuoted": "<Project><ItemGroup><PackageReference Include='xunit.v3' /></ItemGroup></Project>",
+    "Spaced": '<Project><ItemGroup><PackageReference Include = "NUnit" /></ItemGroup></Project>',
     "Legacy": (
         '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">'
         "<PropertyGroup><IsTestProject>True</IsTestProject></PropertyGroup></Project>"
