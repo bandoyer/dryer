@@ -165,10 +165,11 @@ calc='class Calc
         return Scale(total, 2);
     }
 }'
-for dir in src/App src/App/obj/Debug/net10.0 src/Lib Runner.MicrosoftTestPlatform App.Tests App.UnitTests App.Test App.Test.Unit App.UnitTest tests Checks Probe Harness Meta; do
+for dir in src/App src/Lib Runner.MicrosoftTestPlatform App.Tests App.UnitTests App.Test App.Test.Unit App.UnitTest tests Checks Probe Harness Meta; do
   printf '%s\n' "$calc" | $vd put "$project" "$dir/Calc.cs"
 done
 printf '%s\n' "$calc" | $vd put "$project" Prod/Tests/Helper.cs
+printf '%s\n' "$calc" | $vd put "$project" src/App/obj/Debug/net10.0/Calc.g.cs
 for proj in src/App/App Prod/Prod App.Tests/App.Tests App.UnitTests/App.UnitTests App.Test/App.Test App.Test.Unit/App.Test.Unit; do
   printf '<Project Sdk="Microsoft.NET.Sdk" />\n' | $vd put "$project" "$proj.csproj"
 done
@@ -185,7 +186,7 @@ printf 'def b(ys):\n    return f(ys) + 2\n' | $vd put "$project" App.Tests/b.py
 
 Then drive these four, with the files left untracked:
 
-1. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1`. Pass: exit `0`; seven `DUPLICATE` blocks. Six pair `src/App/Calc.cs`, `src/Lib/Calc.cs`, `Prod/Tests/Helper.cs` and `Runner.MicrosoftTestPlatform/Calc.cs` with one another, and one names `App.Tests/a.py` and `App.Tests/b.py`. No block names another file, `src/App/obj/Debug/net10.0/Calc.cs` included.
+1. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1`. Pass: exit `0`; seven `DUPLICATE` blocks. Six pair `src/App/Calc.cs`, `src/Lib/Calc.cs`, `Prod/Tests/Helper.cs` and `Runner.MicrosoftTestPlatform/Calc.cs` with one another, and one names `App.Tests/a.py` and `App.Tests/b.py`. No block names another file, `src/App/obj/Debug/net10.0/Calc.g.cs` included.
 2. `$vd drive "$project" "$T" --changed --threshold 0 --min-lines 1 --min-nodes 1`. Pass: the same seven blocks.
 3. `$vd drive "$project" "$T" --threshold 0 --min-lines 1 --min-nodes 1 App.Tests/Calc.cs src/App/Calc.cs`. Pass: one block, naming both files.
 4. `$vd drive "$project" "$T" --help`. Pass: the help says C# files in a test project, and in a C# project's `bin/` and `obj/`, are skipped, and names the folder signs and the `.csproj` signs.
