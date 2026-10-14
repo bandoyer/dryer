@@ -4,9 +4,9 @@ The extensions and the skipped directories match crapper and mutator, with
 `.cljd` added because dry4clj reads it.
 
 A C# test project is found by the rule crapper and skillflow's measure use
-too (bandoyer/skillflow#270 and #271): a folder whose name ends in `Test` or
-`Tests` or has a dot-separated part `Test` or `Tests`, or a `.csproj` that marks
-itself a test project. The nearest folder at or above a `.cs` file that holds a
+too (bandoyer/skillflow#270 and #271): a folder whose name ends in `Tests` or
+has a dot-separated part `Test` or `Tests`, or a `.csproj` that marks itself a
+test project. The nearest folder at or above a `.cs` file that holds a
 `.csproj` decides the second. Change the three together.
 """
 
@@ -61,6 +61,7 @@ _CSHARP_TEST_PACKAGES = {
     "nunit",
     "xunit",
     "xunit.v3",
+    "mstest",
     "mstest.testframework",
 }
 
@@ -74,7 +75,7 @@ def language_of(path: str | Path) -> str | None:
 
 
 def _csharp_test_folder(name: str) -> bool:
-    return name.endswith(("Test", "Tests")) or not {"Test", "Tests"}.isdisjoint(name.split("."))
+    return name.endswith("Tests") or not {"Test", "Tests"}.isdisjoint(name.split("."))
 
 
 def _mstest_sdk(root) -> bool:

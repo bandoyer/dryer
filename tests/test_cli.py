@@ -47,6 +47,7 @@ def test_help_does_not_scan(capsys):
     assert "C# files in a test project" in out
     assert "IsTestProject" in out
     assert "MSTest.Sdk" in out
+    assert "MSTest," in out
 
 
 def test_unknown_format(capsys):
@@ -189,7 +190,6 @@ def test_a_csharp_test_project_is_found_by_its_folder_name(tmp_path):
         "App.UnitTests",
         "App.Test",
         "App.Test.Unit",
-        "App.UnitTest",
         "X.IntegrationTests",
         "Tests",
         "AppTests",
@@ -197,7 +197,7 @@ def test_a_csharp_test_project_is_found_by_its_folder_name(tmp_path):
     ]
     for folder in folders:
         assert is_test_file(tmp_path / folder / "Calc.cs"), folder
-    for folder in ["App", "App.Testing", "Clock.Testing", "Contests", "Contest", "Attest.Core", "Latest", "tested"]:
+    for folder in ["App", "App.UnitTest", "App.Testing", "Clock.Testing", "Contests", "Attest.Core", "Latest", "tested"]:
         assert not is_test_file(tmp_path / folder / "Calc.cs"), folder
     assert not is_test_file(tmp_path / "App.Tests" / "a.py")
 
@@ -209,6 +209,7 @@ _TEST_PROJECTS = {
     "Xunit": '<Project><ItemGroup><PackageReference Include="xunit" /></ItemGroup></Project>',
     "XunitV3": '<Project><ItemGroup><PackageReference Include="xunit.v3" /></ItemGroup></Project>',
     "Framework": '<Project><ItemGroup><PackageReference Include="MSTest.TestFramework" /></ItemGroup></Project>',
+    "Meta": '<Project><ItemGroup><PackageReference Include="MSTest" /></ItemGroup></Project>',
     "MstestSdk": '<Project Sdk="MSTest.Sdk"><PropertyGroup /></Project>',
     "MstestSdkVersion": '<Project Sdk="MSTest.Sdk/4.2.2"><PropertyGroup /></Project>',
     "Legacy": (
@@ -240,8 +241,8 @@ def test_a_csproj_can_mark_its_project_as_tests(tmp_path):
     assert not is_test_file(tmp_path / "Marked" / "Inner" / "Calc.cs")
 
 
-def test_stryker_nets_test_runner_is_source_and_its_mstest_sdk_project_is_tests(tmp_path):
-    """Two projects from stryker-net 8ee14e5c, trimmed to the lines the rule reads."""
+def test_stryker_nets_test_runners_are_source_and_its_mstest_sdk_project_is_tests(tmp_path):
+    """Three projects from stryker-net 8ee14e5c, trimmed to the lines the rule reads."""
 
     runner = "Stryker.TestRunner.MicrosoftTestPlatform"
     write_source(
@@ -272,7 +273,21 @@ def test_stryker_nets_test_runner_is_source_and_its_mstest_sdk_project_is_tests(
 </Project>
 """,
     )
+    vstest = "Stryker.TestRunner.VsTest"
+    write_source(
+        tmp_path,
+        f"src/{vstest}/{vstest}.csproj",
+        """\
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+      <PackageReference Include="Microsoft.TestPlatform" />
+      <PackageReference Include="Microsoft.TestPlatform.ObjectModel" />
+    </ItemGroup>
+</Project>
+""",
+    )
     assert not is_test_file(tmp_path / "src" / runner / "MicrosoftTestPlatformRunner.cs")
+    assert not is_test_file(tmp_path / "src" / vstest / "VsTestRunner.cs")
     assert is_test_file(tmp_path / "src" / f"{runner}.UnitTest" / "RunnerTests.cs")
 
 
