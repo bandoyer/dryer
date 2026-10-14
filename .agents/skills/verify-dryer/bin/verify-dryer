@@ -110,10 +110,12 @@ case "${1:-}" in
       git clone -q -- "$2" "$scratch/project"
     fi
     # A project's own measure script finds dryer through MEASURE_TOOLS; point it at this checkout.
+    # crapper and mutator sit next to the main checkout, which a worktree of this repo is not.
     mkdir -p "$scratch/tools"
+    main=$(dirname -- "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)")
     for tool in dryer crapper mutator; do
       source=$repo
-      [[ $tool == dryer ]] || source=$(realpath -m -- "$repo/../$tool")
+      [[ $tool == dryer ]] || source=$(realpath -m -- "$main/../$tool")
       ln -s "$source" "$scratch/tools/$tool"
     done
     echo "$scratch/project"

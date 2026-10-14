@@ -19,7 +19,7 @@ Preconditions:
 - `project=$($vd project fixture)`. `T` is the transcript path for the feature.
 
 - **changed-none.** Run `$vd drive "$project" "$T" --changed`. Pass: exit `0`, stdout is `No source files to analyze.`, and the transcript shows `.metrics/dry.edn` written as `{:candidates []}`. Every successful run replaces the report, even one that compares no files.
-- **changed-only.** Add a copy of the invoice function under a new name: `$vd put "$project" src/billing/credit.py` with `def credit(note):` and the same body shape as `src/billing/invoice.py`, then `git -C "$project" add -A`. Run `$vd drive "$project" "$T" --changed`. Pass: no pair names `invoice.py` or `receipt.py`, because they did not change; the new file alone has nothing to pair with, so stdout is `No duplicate candidates found.` Then edit `src/billing/receipt.py` (add a comment line) and drive again. Pass: `DUPLICATE score=1.00` for `src/billing/credit.py:1-4` with `src/billing/receipt.py:1-4`.
+- **changed-only.** Add a copy of the invoice function under a new name, and leave it untracked: `$vd put "$project" src/billing/credit.py` with `def credit(note):` and the same body as `src/billing/invoice.py` with its names changed. Run `$vd drive "$project" "$T" --changed`. Pass: no pair names `invoice.py` or `receipt.py`, because they did not change; the new file alone has nothing to pair with, so stdout is `No duplicate candidates found.` Then edit `src/billing/receipt.py` by adding a comment line at its end, so its function keeps lines 1-4, and drive again. Pass: `DUPLICATE score=1.00` for `src/billing/credit.py:1-4` with `src/billing/receipt.py:1-4`.
 
 ## Gotchas
 

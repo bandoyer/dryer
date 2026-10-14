@@ -1,15 +1,16 @@
 # Number options
 
-`--threshold`, `--min-lines`, and `--min-nodes` take a number. A value dryer can't use is a usage error: exit `1`, the message and the help on stderr, nothing on stdout, and no `.metrics/dry.edn` written.
+`--threshold`, `--min-lines`, and `--min-nodes` take a number. A value dryer can't use is a usage error: exit `1`, the message and the help on stderr, nothing on stdout, and `.metrics/dry.edn` left as it was.
 
 ## Sub-features
 
 - `threshold-range` `--threshold` takes a number from 0 to 1, both ends included. Anything else is rejected with `--threshold requires a number from 0 to 1`: text, `nan`, `inf`, a decimal too large for a float such as `1e309`, and any finite number above 1.
 - `count-options` `--min-lines` and `--min-nodes` take a non-negative integer, with no upper bound. Any other value is rejected with `<option> requires an integer`, except a negative one, which gets `<option> requires a value` (see Gotchas).
+- `help` `./dryer --help` describes `--threshold`'s range.
 
 ## How to get to it (user POV)
 
-- Run `./dryer --threshold <n>`, `./dryer --min-lines <n>`, or `./dryer --min-nodes <n>` from a project root. `./dryer --help` lists each option and its range.
+- Run `./dryer --threshold <n>`, `./dryer --min-lines <n>`, or `./dryer --min-nodes <n>` from a project root. `./dryer --help` lists each option, and `--threshold`'s range.
 
 ## Driving it with verify-dryer
 
@@ -18,8 +19,8 @@ Preconditions:
 - `$vd doctor` prints `doctor: ok`.
 - `project=$($vd project fixture)`. `T` is the transcript path for the feature.
 
-- **threshold-range.** For each of `nan`, `inf`, `+inf`, `1e309`, `1.79769313486231580794e308`, `1.5`, and `1.0000000000000002`, run `$vd drive "$project" "$T" --threshold <v>`. Pass, for each: exit `1`, stderr starts with `--threshold requires a number from 0 to 1` followed by the help, stdout is empty, and the transcript shows no `.metrics/dry.edn`. Then run `$vd drive "$project" "$T" --threshold 1` and `$vd drive "$project" "$T" --threshold 0`. Pass: exit `0`; `1` reports the fixture's two `DUPLICATE score=1.00` pairs, and `0` reports at least those two.
-- **count-options.** For each of `--min-lines` and `--min-nodes`, and each of `nan`, `inf`, `1e309`, and `abc`, run `$vd drive "$project" "$T" <option> <v>`. Pass, for each: exit `1`, stderr starts with `<option> requires an integer`, stdout is empty, and no `.metrics/dry.edn`. Then run `$vd drive "$project" "$T" --min-lines 0 --min-nodes 0`. Pass: exit `0` with the two pairs.
+- **threshold-range.** For each of `nan`, `inf`, `+inf`, `1e309`, `1.79769313486231580794e308`, `1.5`, and `1.0000000000000002`, run `$vd drive "$project" "$T" --threshold <v>`. Pass, for each: exit `1`, stderr starts with `--threshold requires a number from 0 to 1` followed by the help, stdout is empty, and the transcript shows `.metrics/dry.edn` unchanged. Then run `$vd drive "$project" "$T" --threshold 1` and `$vd drive "$project" "$T" --threshold 0`. Pass: exit `0`; `1` reports the fixture's two `DUPLICATE score=1.00` pairs, and `0` reports at least those two.
+- **count-options.** For each of `--min-lines` and `--min-nodes`, and each of `nan`, `inf`, `1e309`, and `abc`, run `$vd drive "$project" "$T" <option> <v>`. Pass, for each: exit `1`, stderr starts with `<option> requires an integer`, stdout is empty, and `.metrics/dry.edn` unchanged. Then run `$vd drive "$project" "$T" --min-lines -1`. Pass: exit `1`, stderr starts with `--min-lines requires a value`. Then run `$vd drive "$project" "$T" --min-lines 0 --min-nodes 0`. Pass: exit `0` with the two pairs.
 - **help.** Run `$vd drive "$project" "$T" --help`. Pass: exit `0`, and the `--threshold N` entry reads `Minimum similarity score, from 0 to 1,` with `default 0.82.` on the next line, as the help wraps at 78 columns.
 
 ## Gotchas
